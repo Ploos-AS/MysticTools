@@ -125,9 +125,27 @@ Mystic documents that door drop files are created in each node's `tempN` directo
 
 Mystic documents Who's Online, node action status and NodeSpy, but no stable external node-status file/API is documented for third-party readers. MysticTools therefore does not reverse-engineer Mystic runtime records. The sidecar contract is qualified only when a Mystic-side exporter explicitly produces schema version 1 data. Procfs remains the independent baseline.
 
+### M2.5 — Prometheus contract and cross-tool coverage
+
+- [x] Normalize public metric names under `mystictools_*`
+- [x] Replace ambiguous `mystictools_up` with explicit source-availability metrics
+- [x] Omit source-dependent values when their probe is unavailable rather than emitting false zeroes
+- [x] Add native node-provider qualification metrics
+- [x] Add FidoNet queue, busy, inbound and MIS POLL metrics
+- [x] Add door/temp/dropfile metrics
+- [x] Keep Prometheus optional alongside human-readable and JSON output
+- [x] Reject simultaneous JSON and Prometheus output
+- [x] Add CLI regression tests for node and metrics contracts
+
+### M2.5 observability policy
+
+Prometheus support is an optional first-class output layer. New MysticTools commands should expose useful low-cardinality metrics where meaningful, while remaining fully usable without Prometheus. Public metric names use the `mystictools_*` namespace and should be treated as an API once v0.1.0 is released.
+
 ### Later M2 areas
 
 - Mystic-side node snapshot exporter (Python/MPL) qualification
+- users and statistics providers
+- doctor/deeper consistency diagnostics
 - backup/restore design and consistency model
-- optional exporter/service packaging
+- optional HTTP Prometheus exporter/service packaging
 - optional Mystic-side Python/menu integration
