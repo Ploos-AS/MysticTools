@@ -153,11 +153,27 @@ Prometheus support is an optional first-class output layer. New MysticTools comm
 
 ### M2.6 qualification boundary
 
-Mystic Python documents `mci2str()` and the MCI values used by the exporter, but it does not document a global node-enumeration API. The exporter therefore publishes only the current session's node record. Fragment freshness/cleanup after logout is not yet considered a live Who's Online guarantee; procfs remains the authority for whether a Mystic process is currently running. The optional `action` field is supplied explicitly to the exporter rather than inferred from undocumented Mystic state.
+Mystic Python documents `mci2str()` and the MCI values used by the exporter, but it does not document a global node-enumeration API. The exporter therefore publishes only the current session's node record. The optional `action` field is supplied explicitly to the exporter rather than inferred from undocumented Mystic state.
+
+### M2.7 — Fragment freshness and active-node correlation
+
+- [x] Require `generated_at` on per-node fragments
+- [x] Reject stale fragments from native enrichment
+- [x] Default freshness window to 300 seconds
+- [x] Optional `MYSTICTOOLS_NODE_MAX_AGE` override
+- [x] Correlate native records with explicit procfs node IDs when available
+- [x] Mark unmatched native records inactive only when all active process nodes are known
+- [x] Preserve unresolved status when Mystic auto-selects node IDs
+- [x] Add freshness and correlation tests
+- [x] Add low-cardinality Prometheus metrics for fragment count/fresh/stale/max-age
+
+### M2.7 qualification boundary
+
+Procfs remains the authority for process liveness. A fresh fragment is accepted as qualified native session metadata, but freshness alone does not prove that the corresponding Mystic process is still alive. When procfs exposes explicit node IDs, MysticTools can positively correlate those records. If one or more running Mystic processes have auto-selected/unknown node IDs, unmatched fresh fragments are reported as unresolved rather than guessed active or inactive. M2.7 is intentionally read-only and never deletes stale fragments.
 
 ### Later M2 areas
 
-- fragment freshness/logout cleanup and tighter active-node correlation
+- optional explicit stale-fragment cleanup command/design
 - users and statistics providers
 - doctor/deeper consistency diagnostics
 - backup/restore design and consistency model
