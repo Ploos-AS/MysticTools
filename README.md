@@ -2,7 +2,7 @@
 
 Linux-first sysop toolkit for Mystic BBS.
 
-MysticTools provides small, script-friendly tools around a Mystic installation without replacing Mystic's own utilities. The current M0.x line is intentionally read-only.
+MysticTools provides small, script-friendly tools around a Mystic installation without replacing Mystic's own utilities. The current line is intentionally read-only.
 
 ## Current capabilities
 
@@ -10,12 +10,11 @@ MysticTools provides small, script-friendly tools around a Mystic installation w
 - Report basic installation status
 - Detect MIS and Mystic node processes through Linux procfs
 - Detect Mystic version from WHATSNEW metadata when available
-- Check permissions and report uid/gid ownership without changing it
-- Check available disk space
-- Discover Mystic log directories and candidate log files
+- Perform safe installation and operational checks
+- Report ownership, permissions and free disk space
+- Discover and read candidate Mystic logs safely
 - Show detected Mystic sessions with conservative node-number handling
 - Human-readable and JSON output
-- Stable monitoring-friendly exit codes
 - Architecture-neutral Linux implementation
 
 ## Commands
@@ -24,6 +23,7 @@ MysticTools provides small, script-friendly tools around a Mystic installation w
 mystictools status
 mystictools check
 mystictools who
+mystictools logs
 ```
 
 Common options:
@@ -35,19 +35,30 @@ Common options:
 
 Root detection order: `--root`, `MYSTIC_ROOT`, `/mystic`, `/opt/mystic`, `/srv/mystic`.
 
+### Logs
+
+`logs` only reads files already identified by MysticTools log discovery. It does not accept an arbitrary filesystem path.
+
+Examples:
+
+```sh
+mystictools logs
+mystictools logs mis --tail 100
+mystictools logs --contains error --tail 50
+mystictools --json logs mis --contains refused
+```
+
+The default tail is 50 matching lines per selected file and the hard maximum is 5000.
+
 ### Runtime discovery
 
 `status` and `who` inspect `/proc` directly and do not require systemd. Mystic can select node numbers internally, so if a running `mystic` process has no explicit `-N#` argument MysticTools reports the node as `?`/`null` instead of guessing.
 
-### Operational diagnostics
-
-`check` combines installation checks with read-only permission/ownership, disk-space and log-discovery diagnostics. Mixed ownership is reported conservatively; MysticTools does not assume a required Linux user or group.
-
-Exit codes:
+### Exit codes
 
 ```text
-0  success / healthy
-1  diagnostic warnings
+0  OK
+1  diagnostics/warnings or invalid bounded input
 2  Mystic installation not found
 3  required runtime/probe source unavailable
 ```
