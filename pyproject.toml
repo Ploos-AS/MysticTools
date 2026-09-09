@@ -13,8 +13,23 @@ authors = [{name = "Ploos AS"}]
 
 [project.scripts]
 mystictools = "mystictools.app:main"
-mysticrollback = "mystictools.rollback_cli:main"
+mysticstatus = "mystictools.standalone:main"
+mysticcheck = "mystictools.standalone:main"
+mysticwho = "mystictools.standalone:main"
+mysticnodes = "mystictools.standalone:main"
 mysticwatch = "mystictools.watch_cli:main"
+mysticlog = "mystictools.standalone:main"
+mysticnet = "mystictools.standalone:main"
+mysticfidonet = "mystictools.standalone:main"
+mysticdoors = "mystictools.standalone:main"
+mysticusers = "mystictools.standalone:main"
+mysticstats = "mystictools.standalone:main"
+mystichealth = "mystictools.standalone:main"
+mysticdoctor = "mystictools.standalone:main"
+mysticbackup = "mystictools.standalone:main"
+mysticrestore = "mystictools.standalone:main"
+mysticrollback = "mystictools.rollback_cli:main"
+mysticmetrics = "mystictools.standalone:main"
 mysticexporter = "mystictools.exporter_cli:main"
 
 [tool.setuptools]
