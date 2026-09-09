@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .core import detect_root
 from .diagnostics import EXIT_NOT_FOUND, EXIT_OK, EXIT_WARNING
+from .recovery_state import safe_record_event
 from .restore import discover_recovery_trees, execute_rollback, rollback_preflight
 
 
@@ -76,6 +77,8 @@ def main(argv: list[str] | None = None) -> int:
     path = Path(args.rollback_path)
     result = execute_rollback(root, path) if args.execute else rollback_preflight(root, path)
     ok = result["ok"] and (result.get("rolled_back", False) if args.execute else True)
+    if args.execute:
+        safe_record_event(root, "rollback", ok)
     payload = {"command": "rollback", "ok": ok, "root": str(root), "result": result}
     _emit(payload, args.json)
     return EXIT_OK if ok else EXIT_WARNING
