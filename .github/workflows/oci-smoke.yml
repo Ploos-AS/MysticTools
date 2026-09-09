@@ -1,0 +1,66 @@
+name: OCI Smoke
+
+on:
+  workflow_run:
+    workflows: ["OCI Publish"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull published edge image
+        run: docker pull ghcr.io/ploos-as/mystictools:edge
+
+      - name: Prepare minimal Mystic root
+        run: |
+          mkdir -p /tmp/mystic-smoke/{data,logs,cfg}
+          touch /tmp/mystic-smoke/mis /tmp/mystic-smoke/mutil
+          chmod 0555 /tmp/mystic-smoke/mis /tmp/mystic-smoke/mutil
+
+      - name: Run published exporter image
+        run: |
+          docker run -d --rm \
+            --name mystictools-smoke \
+            --pid host \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            -p 127.0.0.1:19108:9108 \
+            -v /tmp/mystic-smoke:/mystic:ro \
+            ghcr.io/ploos-as/mystictools:edge
+
+      - name: Verify health and metrics endpoints
+        run: |
+          set -e
+          for attempt in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:19108/healthz >/tmp/health.json; then
+              break
+            fi
+            sleep 1
+          done
+          cat /tmp/health.json
+          curl -fsS http://127.0.0.1:19108/metrics >/tmp/metrics.txt
+          grep -q '^# HELP mystictools_' /tmp/metrics.txt
+          grep -q '^mystictools_' /tmp/metrics.txt
+
+      - name: Inspect runtime contract
+        run: |
+          docker inspect mystictools-smoke --format '{{.Config.User}} {{.HostConfig.ReadonlyRootfs}} {{.HostConfig.PidMode}}'
+
+      - name: Stop smoke container
+        if: always()
+        run: docker stop mystictools-smoke || true
