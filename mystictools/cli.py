@@ -20,6 +20,7 @@ from .metrics import metrics_snapshot, render_prometheus
 from .network import health_snapshot, network_snapshot
 from .nodes import nodes_snapshot
 from .runtime import runtime_snapshot
+from .users import users_snapshot
 
 
 def emit(payload: dict, as_json: bool, prometheus: bool = False) -> None:
@@ -92,6 +93,24 @@ def emit(payload: dict, as_json: bool, prometheus: bool = False) -> None:
                 text = " ".join(field for field in fields if field)
                 if text:
                     print(f"  native: {text}")
+    elif command == "users":
+        print(f"Mystic root: {payload['root']}")
+        result = payload["result"]
+        print(f"source: {result['source']} (qualified={result['qualified']})")
+        if not result["users"]:
+            print("No qualified Mystic user records available.")
+            return
+        for user in result["users"]:
+            fields = [f"id={user['id']}"]
+            if user.get("handle") is not None:
+                fields.append(f"handle={user['handle']}")
+            if user.get("security_level") is not None:
+                fields.append(f"level={user['security_level']}")
+            if user.get("calls") is not None:
+                fields.append(f"calls={user['calls']}")
+            if user.get("last_on") is not None:
+                fields.append(f"last_on={user['last_on']}")
+            print(" ".join(fields))
     elif command == "logs":
         print(f"Mystic root: {payload['root']}")
         result = payload["result"]
@@ -173,6 +192,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("check", help="run read-only installation and operational checks")
     sub.add_parser("who", help="show detected Mystic node processes")
     sub.add_parser("nodes", help="show detailed Mystic node/session process information")
+    sub.add_parser("users", help="show qualified privacy-safe Mystic user snapshot")
     sub.add_parser("network", help="show listeners owned by detected MIS/Mystic processes")
     sub.add_parser("health", help="show monitoring-friendly Mystic health summary")
     sub.add_parser("fidonet", help="show conservative FidoNet filesystem and poll diagnostics")
@@ -244,6 +264,10 @@ def main(argv: list[str] | None = None) -> int:
         result = nodes_snapshot(root)
         payload = {"command": "nodes", "ok": result["available"], "root": str(root), "result": result}
         exit_code = EXIT_OK if result["available"] else EXIT_UNAVAILABLE
+    elif args.command == "users":
+        result = users_snapshot(root)
+        payload = {"command": "users", "ok": result["qualified"], "root": str(root), "result": result}
+        exit_code = EXIT_OK if result["qualified"] else EXIT_UNAVAILABLE
     elif args.command == "network":
         runtime = runtime_snapshot(root)
         result = network_snapshot(runtime["processes"])
