@@ -17,6 +17,8 @@ class StatsTests(unittest.TestCase):
             ) as fidonet, patch("mystictools.stats.doors_snapshot") as doors:
                 users.return_value = {
                     "qualified": True,
+                    "fresh": True,
+                    "complete_scan": True,
                     "count": 2,
                     "users": [
                         {"calls": 10, "uploads": 2, "downloads": 3, "posts": 4},
@@ -49,7 +51,7 @@ class StatsTests(unittest.TestCase):
     def test_unqualified_users_do_not_emit_false_totals(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            with patch("mystictools.stats.users_snapshot", return_value={"qualified": False, "count": 0, "users": []}), patch(
+            with patch("mystictools.stats.users_snapshot", return_value={"qualified": False, "fresh": False, "complete_scan": False, "count": 0, "users": []}), patch(
                 "mystictools.stats.runtime_snapshot",
                 return_value={"processes": {"available": False, "nodes": [], "mis": []}, "mis_running": False, "active_process_count": 0},
             ), patch("mystictools.stats.network_snapshot", return_value={"available": False, "listeners": []}), patch(
@@ -69,6 +71,20 @@ class StatsTests(unittest.TestCase):
         self.assertIsNone(snap["users"]["calls"])
         self.assertIsNone(snap["runtime"]["node_processes"])
         self.assertIsNone(snap["runtime"]["listeners"])
+
+    def test_partial_numeric_user_data_is_not_summed(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with patch("mystictools.stats.users_snapshot", return_value={
+                "qualified": True,
+                "fresh": True,
+                "complete_scan": True,
+                "count": 2,
+                "users": [{"calls": 10, "uploads": 2, "downloads": 3, "posts": 4}, {"calls": None, "uploads": 5, "downloads": 7, "posts": 11}],
+            }), patch("mystictools.stats.runtime_snapshot", return_value={"processes": {"available": True, "nodes": [], "mis": []}, "mis_running": False, "active_process_count": 0}), patch("mystictools.stats.network_snapshot", return_value={"available": True, "listeners": []}), patch("mystictools.stats.fidonet_snapshot", return_value={"qualified_config": True, "signals": {"busy_count": 0, "queued_outbound_count": 0, "inbound_packet_count": 0}, "poll": {"active": False}}), patch("mystictools.stats.doors_snapshot", return_value={"node_temp_count": 0, "dropfile_count": 0, "unreadable_dropfile_count": 0}):
+                snap = stats_snapshot(root)
+        self.assertIsNone(snap["users"]["calls"])
+        self.assertEqual(snap["users"]["uploads"], 7)
 
 
 if __name__ == "__main__":
