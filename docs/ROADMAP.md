@@ -42,8 +42,13 @@ Mystic may select a node number internally when `-N#` is not present. MysticTool
 
 ### M1.2 — Nodes
 
-- richer node/session presentation
-- conservative enrichment from qualified sources
+- [x] Dedicated `nodes` command
+- [x] PID and explicit/unknown node number
+- [x] Process start time and runtime from procfs when available
+- [x] Process arguments and executable path
+- [x] Conservative enrichment only; no guessed usernames or remote addresses
+- [x] Human-readable and JSON output
+- [x] Node model tests
 
 ### M1.3 — Network/service status
 
