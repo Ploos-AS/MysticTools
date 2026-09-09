@@ -11,6 +11,7 @@ import time
 from pathlib import Path, PurePosixPath
 
 from .backup import MANIFEST_NAME, SCHEMA_VERSION
+from .restore_transaction import clear_journal, journal_path, write_journal
 from .runtime import runtime_snapshot
 
 
@@ -82,7 +83,6 @@ def verify_backup(archive_path: Path) -> dict:
             names = [member.name for member in members]
             if len(names) != len(set(names)):
                 errors.append("archive contains duplicate member names")
-
             for member in members:
                 if not _safe_member_name(member.name):
                     errors.append(f"unsafe archive path: {member.name}")
@@ -122,7 +122,6 @@ def verify_backup(archive_path: Path) -> dict:
                 seen_paths: set[str] = set()
                 expected_payload: set[str] = set()
                 symlink_paths: set[PurePosixPath] = set()
-
                 for record in records:
                     if not isinstance(record, dict):
                         errors.append("backup manifest contains invalid file record")
@@ -195,15 +194,12 @@ def verify_backup(archive_path: Path) -> dict:
                         errors.append(f"manifest path is nested beneath a symlink: {relative}")
 
                 actual_payload = {
-                    member.name
-                    for member in members
+                    member.name for member in members
                     if member.name.startswith("mystic/") and member.name != "mystic/" and not member.isdir()
                 }
-                extra_payload = sorted(actual_payload - expected_payload)
-                missing_payload = sorted(expected_payload - actual_payload)
-                for name in extra_payload:
+                for name in sorted(actual_payload - expected_payload):
                     errors.append(f"archive payload not declared in manifest: {name}")
-                for name in missing_payload:
+                for name in sorted(expected_payload - actual_payload):
                     errors.append(f"manifest payload missing from archive: {name}")
 
                 expected_count = manifest.get("file_count")
@@ -225,12 +221,10 @@ def restore_preflight(root: Path, archive_path: Path) -> dict:
     runtime_available, bbs_running, runtime_errors = _runtime_guard(root, "restore")
     errors = list(verification["errors"]) + runtime_errors
     warnings = list(verification["warnings"])
-
     manifest = verification.get("manifest") or {}
     source_root = manifest.get("source_root")
     if source_root and Path(source_root).name != root.name:
         warnings.append("backup source root basename differs from target root")
-
     return {
         "ok": not errors,
         "root": str(root),
@@ -247,30 +241,52 @@ def restore_preflight(root: Path, archive_path: Path) -> dict:
 
 def execute_restore(root: Path, archive_path: Path, *, replace_existing: bool = False) -> dict:
     root = root.resolve()
+    archive_path = archive_path.expanduser().resolve()
+    parent = root.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    transaction_path = journal_path(root)
+    if transaction_path.exists():
+        return {
+            "ok": False,
+            "root": str(root),
+            "archive": str(archive_path),
+            "restored": False,
+            "rollback_path": None,
+            "transaction_journal": str(transaction_path),
+            "mode": "guarded-restore",
+            "errors": ["an unfinished restore transaction journal already exists; inspect recovery state before retrying"],
+            "warnings": [],
+        }
+
+    try:
+        archive_sha256 = _sha256_path(archive_path)
+    except OSError as exc:
+        return {"ok": False, "root": str(root), "archive": str(archive_path), "restored": False, "rollback_path": None, "transaction_journal": None, "mode": "guarded-restore", "errors": [str(exc)], "warnings": []}
+
     preflight = restore_preflight(root, archive_path)
     if not preflight["ok"]:
-        return {**preflight, "restored": False, "rollback_path": None, "mode": "guarded-restore"}
-
+        return {**preflight, "restored": False, "rollback_path": None, "transaction_journal": None, "mode": "guarded-restore"}
+    if _sha256_path(archive_path) != archive_sha256:
+        return {**preflight, "ok": False, "restored": False, "rollback_path": None, "transaction_journal": None, "mode": "guarded-restore", "errors": preflight["errors"] + ["backup archive changed during verification"]}
     if root.exists() and not replace_existing:
         return {
             **preflight,
             "ok": False,
             "restored": False,
             "rollback_path": None,
+            "transaction_journal": None,
             "mode": "guarded-restore",
             "errors": preflight["errors"] + ["target root already exists; use --replace-existing after reviewing preflight"],
         }
 
-    parent = root.parent
-    parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=f".{root.name}.restore-", dir=parent))
     rollback: Path | None = None
-    archive_path = Path(preflight["archive"])
     manifest = preflight.get("manifest") or {}
     records = manifest.get("files", [])
     record_map = {f"mystic/{record['path']}": record for record in records if isinstance(record, dict) and isinstance(record.get("path"), str)}
 
     try:
+        write_journal(root, state="prepared", archive=archive_path, archive_sha256=archive_sha256, stage=stage, rollback=None)
         with tarfile.open(archive_path, "r:gz") as archive:
             for member in archive.getmembers():
                 if member.name == MANIFEST_NAME or member.isdir():
@@ -288,7 +304,6 @@ def execute_restore(root: Path, archive_path: Path, *, replace_existing: bool = 
                     raise OSError(f"unable to read archive member: {member.name}")
                 with destination.open("xb") as out:
                     shutil.copyfileobj(handle, out)
-
             for member in archive.getmembers():
                 record = record_map.get(member.name)
                 if record is None or record.get("type") != "symlink":
@@ -297,6 +312,9 @@ def execute_restore(root: Path, archive_path: Path, *, replace_existing: bool = 
                 destination = stage.joinpath(*relative.parts)
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 os.symlink(record["target"], destination)
+
+        if _sha256_path(archive_path) != archive_sha256:
+            raise OSError("backup archive changed during restore staging")
 
         for record in records:
             relative = record.get("path")
@@ -318,41 +336,49 @@ def execute_restore(root: Path, archive_path: Path, *, replace_existing: bool = 
                 raise OSError(f"staged file missing: {record['path']}")
             if not stat.S_ISREG(st.st_mode):
                 raise OSError(f"staged path is not a regular file: {record['path']}")
-            digest = _sha256_path(path)
-            if digest != record.get("sha256", "").lower():
+            if _sha256_path(path) != record.get("sha256", "").lower():
                 raise OSError(f"staged checksum mismatch: {record['path']}")
 
         runtime_available, bbs_running, runtime_errors = _runtime_guard(root, "restore commit")
         if not runtime_available or bbs_running:
             raise OSError("; ".join(runtime_errors) or "runtime state changed before restore commit")
+        if _sha256_path(archive_path) != archive_sha256:
+            raise OSError("backup archive changed before restore commit")
 
         if root.exists():
             rollback = Path(tempfile.mkdtemp(prefix=f".{root.name}.rollback-", dir=parent))
             rollback.rmdir()
             os.replace(root, rollback)
+            write_journal(root, state="old-moved", archive=archive_path, archive_sha256=archive_sha256, stage=stage, rollback=rollback)
         try:
             os.replace(stage, root)
+            write_journal(root, state="new-installed", archive=archive_path, archive_sha256=archive_sha256, stage=None, rollback=rollback)
         except OSError:
             if rollback is not None and rollback.exists() and not root.exists():
                 os.replace(rollback, root)
                 rollback = None
+                clear_journal(root)
             raise
 
+        clear_journal(root)
         return {
             **preflight,
             "ok": True,
             "restored": True,
             "rollback_path": str(rollback) if rollback is not None else None,
+            "transaction_journal": None,
             "mode": "guarded-restore",
         }
     except (OSError, tarfile.TarError) as exc:
         if stage.exists():
             shutil.rmtree(stage, ignore_errors=True)
+        journal = journal_path(root)
         return {
             **preflight,
             "ok": False,
             "restored": False,
             "rollback_path": str(rollback) if rollback is not None and rollback.exists() else None,
+            "transaction_journal": str(journal) if journal.exists() else None,
             "mode": "guarded-restore",
             "errors": preflight["errors"] + [str(exc)],
         }
@@ -363,7 +389,6 @@ def rollback_preflight(root: Path, rollback_path: Path) -> dict:
     rollback_path = rollback_path.expanduser().resolve()
     runtime_available, bbs_running, errors = _runtime_guard(root, "rollback")
     warnings: list[str] = []
-
     expected_prefix = f".{root.name}.rollback-"
     if rollback_path.parent != root.parent:
         errors.append("rollback tree must be a sibling of the Mystic root")
@@ -373,24 +398,13 @@ def rollback_preflight(root: Path, rollback_path: Path) -> dict:
         errors.append("rollback tree does not exist or is not a directory")
     if not root.exists():
         warnings.append("current target root does not exist; rollback will install the saved tree directly")
-
-    return {
-        "ok": not errors,
-        "root": str(root),
-        "rollback_path": str(rollback_path),
-        "runtime_available": runtime_available,
-        "bbs_running": bbs_running,
-        "errors": errors,
-        "warnings": warnings,
-        "mode": "rollback-preflight-only",
-    }
+    return {"ok": not errors, "root": str(root), "rollback_path": str(rollback_path), "runtime_available": runtime_available, "bbs_running": bbs_running, "errors": errors, "warnings": warnings, "mode": "rollback-preflight-only"}
 
 
 def execute_rollback(root: Path, rollback_path: Path) -> dict:
     preflight = rollback_preflight(root, rollback_path)
     if not preflight["ok"]:
         return {**preflight, "rolled_back": False, "failed_tree_path": None, "mode": "guarded-rollback"}
-
     root = Path(preflight["root"])
     rollback_path = Path(preflight["rollback_path"])
     failed_tree: Path | None = None
@@ -407,22 +421,9 @@ def execute_rollback(root: Path, rollback_path: Path) -> dict:
                 os.replace(failed_tree, root)
                 failed_tree = None
             raise
-        return {
-            **preflight,
-            "ok": True,
-            "rolled_back": True,
-            "failed_tree_path": str(failed_tree) if failed_tree is not None else None,
-            "mode": "guarded-rollback",
-        }
+        return {**preflight, "ok": True, "rolled_back": True, "failed_tree_path": str(failed_tree) if failed_tree is not None else None, "mode": "guarded-rollback"}
     except OSError as exc:
-        return {
-            **preflight,
-            "ok": False,
-            "rolled_back": False,
-            "failed_tree_path": str(failed_tree) if failed_tree is not None and failed_tree.exists() else None,
-            "mode": "guarded-rollback",
-            "errors": preflight["errors"] + [str(exc)],
-        }
+        return {**preflight, "ok": False, "rolled_back": False, "failed_tree_path": str(failed_tree) if failed_tree is not None and failed_tree.exists() else None, "mode": "guarded-rollback", "errors": preflight["errors"] + [str(exc)]}
 
 
 def discover_recovery_trees(root: Path) -> dict:
@@ -432,9 +433,11 @@ def discover_recovery_trees(root: Path) -> dict:
     failed_prefix = f".{root.name}.failed-"
     rollback = sorted(str(path) for path in parent.glob(f"{rollback_prefix}*") if path.is_dir())
     failed = sorted(str(path) for path in parent.glob(f"{failed_prefix}*") if path.is_dir())
+    journal = journal_path(root)
     return {
         "root": str(root),
         "rollback_trees": rollback,
         "failed_trees": failed,
+        "restore_transaction_journal": str(journal) if journal.exists() else None,
         "cleanup_policy": "manual-only",
     }
