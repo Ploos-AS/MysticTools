@@ -15,6 +15,7 @@ authors = [{name = "Ploos AS"}]
 mystictools = "mystictools.app:main"
 mysticrollback = "mystictools.rollback_cli:main"
 mysticwatch = "mystictools.watch_cli:main"
+mysticexporter = "mystictools.exporter_cli:main"
 
 [tool.setuptools]
 packages = ["mystictools"]
