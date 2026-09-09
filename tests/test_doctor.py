@@ -50,6 +50,22 @@ class DoctorTests(unittest.TestCase):
                 self.assertEqual(snap["status"], "unavailable")
                 self.assertEqual(snap["counts"]["unavailable"], 2)
 
+    def test_critical_finding_outranks_unavailable_probe(self):
+        root = Path("/srv/mystic")
+        snap = doctor_snapshot(
+            root,
+            runtime={"processes": {"available": False}, "mis_running": False},
+            network={"available": False, "listeners": []},
+            operations={"warning_count": 0, "checks": [{"name": "disk", "status": "critical", "detail": "full"}]},
+            node_provider={"available": False, "qualified": False},
+            users={"available": False, "qualified": False},
+            fidonet={"qualified_config": True, "signals": {"busy_count": 0}},
+            doors={"unreadable_dropfile_count": 0},
+        )
+        self.assertEqual(snap["status"], "critical")
+        self.assertEqual(snap["counts"]["critical"], 1)
+        self.assertEqual(snap["counts"]["unavailable"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()
