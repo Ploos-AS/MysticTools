@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .diagnostics import operational_checks
+from .doctor import doctor_snapshot
 from .doors import doors_snapshot
 from .fidonet import fidonet_snapshot
 from .node_provider import load_node_snapshot
@@ -13,6 +14,7 @@ from .users import users_snapshot
 SCHEMA_VERSION = 2
 
 _HEALTH_CODES = {"ok": 0, "warning": 1, "unknown": 2, "critical": 3}
+_DOCTOR_CODES = {"ok": 0, "warning": 1, "critical": 2, "unavailable": 3}
 
 _HELP_TEXT = {
     "mystictools_runtime_available": "Whether Linux procfs runtime discovery is available.",
@@ -25,6 +27,10 @@ _HELP_TEXT = {
     "mystictools_disk_free_percent": "Free filesystem percentage for the Mystic root.",
     "mystictools_operational_warnings": "Number of current operational warnings.",
     "mystictools_health_status": "Health status code: 0 ok, 1 warning, 2 unknown, 3 critical.",
+    "mystictools_doctor_status": "Doctor status code: 0 ok, 1 warning, 2 critical, 3 unavailable.",
+    "mystictools_doctor_warnings": "Number of doctor findings with warning status.",
+    "mystictools_doctor_critical": "Number of doctor findings with critical status.",
+    "mystictools_doctor_unavailable": "Number of doctor findings with unavailable status.",
     "mystictools_node_provider_available": "Whether a Mystic native node provider exists and was readable.",
     "mystictools_node_provider_qualified": "Whether the native node provider passed qualification.",
     "mystictools_node_fragment_count": "Number of per-node Mystic snapshot fragment files discovered.",
@@ -64,6 +70,7 @@ def metrics_snapshot(root: Path) -> dict:
     network = network_snapshot(processes)
     operations = operational_checks(root)
     health = health_snapshot(runtime, network)
+    doctor = doctor_snapshot(root)
     provider = load_node_snapshot(root)
     users = users_snapshot(root)
     fidonet = fidonet_snapshot(root, processes=processes)
@@ -81,6 +88,10 @@ def metrics_snapshot(root: Path) -> dict:
         "mystictools_disk_free_percent": operations["disk"]["free_percent"] if operations["disk"]["available"] else None,
         "mystictools_operational_warnings": operations["warning_count"],
         "mystictools_health_status": _HEALTH_CODES.get(health["status"], 2),
+        "mystictools_doctor_status": _DOCTOR_CODES.get(doctor["status"], 3),
+        "mystictools_doctor_warnings": doctor["counts"]["warning"],
+        "mystictools_doctor_critical": doctor["counts"]["critical"],
+        "mystictools_doctor_unavailable": doctor["counts"]["unavailable"],
         "mystictools_node_provider_available": 1 if provider["available"] else 0,
         "mystictools_node_provider_qualified": 1 if provider["qualified"] else 0,
         "mystictools_node_fragment_count": provider.get("fragment_count") if fragment_provider else None,
