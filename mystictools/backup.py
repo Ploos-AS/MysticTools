@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import tarfile
 import tempfile
 import time
@@ -28,6 +29,42 @@ def _inside(path: Path, parent: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _inventory(root: Path) -> tuple[list[dict], list[Path]]:
+    files: list[dict] = []
+    directories: list[Path] = []
+
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root).as_posix()
+        try:
+            info = path.lstat()
+            mode = info.st_mode
+            if stat.S_ISLNK(mode):
+                target = os.readlink(path)
+                resolved_target = (path.parent / target).resolve(strict=False) if not os.path.isabs(target) else Path(target).resolve(strict=False)
+                if not _inside(resolved_target, root):
+                    raise OSError(f"symlink target escapes Mystic root: {relative} -> {target}")
+                files.append({"path": relative, "type": "symlink", "target": target})
+            elif stat.S_ISREG(mode):
+                files.append(
+                    {
+                        "path": relative,
+                        "type": "file",
+                        "size": info.st_size,
+                        "mode": mode & 0o7777,
+                        "mtime": int(info.st_mtime),
+                        "sha256": _sha256(path),
+                    }
+                )
+            elif stat.S_ISDIR(mode):
+                directories.append(path)
+            else:
+                raise OSError(f"unsupported special file in Mystic root: {relative}")
+        except OSError as exc:
+            raise OSError(f"unable to inventory {path}: {exc}") from exc
+
+    return files, directories
 
 
 def backup_plan(root: Path, destination: Path, allow_live: bool = False, allow_unverified: bool = False) -> dict:
@@ -75,27 +112,11 @@ def create_backup(root: Path, destination: Path, allow_live: bool = False, allow
     destination = Path(plan["destination"])
     destination.parent.mkdir(parents=True, exist_ok=True)
 
-    files: list[dict] = []
     started = int(time.time())
-    for path in sorted(root.rglob("*")):
-        try:
-            relative = path.relative_to(root).as_posix()
-            if path.is_symlink():
-                files.append({"path": relative, "type": "symlink", "target": os.readlink(path)})
-            elif path.is_file():
-                stat = path.stat()
-                files.append(
-                    {
-                        "path": relative,
-                        "type": "file",
-                        "size": stat.st_size,
-                        "mode": stat.st_mode & 0o7777,
-                        "mtime": int(stat.st_mtime),
-                        "sha256": _sha256(path),
-                    }
-                )
-        except OSError as exc:
-            return {**plan, "ok": False, "created": False, "manifest": None, "errors": [f"unable to inventory {path}: {exc}"]}
+    try:
+        files, directories = _inventory(root)
+    except OSError as exc:
+        return {**plan, "ok": False, "created": False, "manifest": None, "errors": [str(exc)]}
 
     manifest = {
         "schema_version": SCHEMA_VERSION,
@@ -108,15 +129,42 @@ def create_backup(root: Path, destination: Path, allow_live: bool = False, allow
         "files": files,
     }
 
-    temporary = destination.with_name(destination.name + ".tmp")
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent)
+    os.close(fd)
+    temporary = Path(temporary_name)
+    os.chmod(temporary, 0o600)
+
     try:
         with tempfile.TemporaryDirectory() as td:
             manifest_path = Path(td) / MANIFEST_NAME
             manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-            with tarfile.open(temporary, "w:gz", format=tarfile.PAX_FORMAT) as archive:
-                archive.add(root, arcname="mystic", recursive=True)
-                archive.add(manifest_path, arcname=MANIFEST_NAME)
+            os.chmod(manifest_path, 0o600)
+
+            with tarfile.open(temporary, "w:gz", format=tarfile.PAX_FORMAT, dereference=False) as archive:
+                archive.add(root, arcname="mystic", recursive=False)
+                for directory in directories:
+                    relative = directory.relative_to(root).as_posix()
+                    archive.add(directory, arcname=f"mystic/{relative}", recursive=False)
+                for record in files:
+                    source = root / record["path"]
+                    archive.add(source, arcname=f"mystic/{record['path']}", recursive=False)
+                archive.add(manifest_path, arcname=MANIFEST_NAME, recursive=False)
+
+        os.chmod(temporary, 0o600)
+
+        # Verify exactly what was written before publishing the archive.  The
+        # import is intentionally local to avoid a module-level backup/restore
+        # cycle while reusing the authoritative restore verifier.
+        from .restore import verify_backup
+
+        verification = verify_backup(temporary)
+        if not verification["ok"]:
+            errors = [f"backup self-verification failed: {item}" for item in verification["errors"]]
+            temporary.unlink(missing_ok=True)
+            return {**plan, "ok": False, "created": False, "manifest": manifest, "errors": errors}
+
         os.replace(temporary, destination)
+        os.chmod(destination, 0o600)
     except (OSError, tarfile.TarError) as exc:
         try:
             temporary.unlink(missing_ok=True)
