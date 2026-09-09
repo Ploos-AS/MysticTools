@@ -25,6 +25,19 @@ def _sha256_stream(handle) -> str:
     return digest.hexdigest()
 
 
+def _runtime_guard(root: Path, operation: str) -> tuple[bool, bool | None, list[str]]:
+    runtime = runtime_snapshot(root)
+    processes = runtime["processes"]
+    available = bool(processes.get("available"))
+    running = bool(processes.get("mis") or processes.get("nodes")) if available else None
+    errors: list[str] = []
+    if not available:
+        errors.append(f"runtime state is unavailable; {operation} requires verified stopped Mystic/MIS processes")
+    elif running:
+        errors.append(f"Mystic/MIS processes are running; stop the BBS before {operation}")
+    return available, running, errors
+
+
 def verify_backup(archive_path: Path) -> dict:
     archive_path = archive_path.expanduser().resolve()
     errors: list[str] = []
@@ -126,17 +139,9 @@ def verify_backup(archive_path: Path) -> dict:
 def restore_preflight(root: Path, archive_path: Path) -> dict:
     root = root.resolve()
     verification = verify_backup(archive_path)
-    runtime = runtime_snapshot(root)
-    processes = runtime["processes"]
-    errors = list(verification["errors"])
+    runtime_available, bbs_running, runtime_errors = _runtime_guard(root, "restore")
+    errors = list(verification["errors"]) + runtime_errors
     warnings = list(verification["warnings"])
-
-    runtime_available = bool(processes.get("available"))
-    bbs_running = bool(processes.get("mis") or processes.get("nodes")) if runtime_available else None
-    if not runtime_available:
-        errors.append("runtime state is unavailable; restore requires verified stopped Mystic/MIS processes")
-    elif bbs_running:
-        errors.append("Mystic/MIS processes are running; stop the BBS before restore")
 
     manifest = verification.get("manifest") or {}
     source_root = manifest.get("source_root")
@@ -213,7 +218,6 @@ def execute_restore(root: Path, archive_path: Path, *, replace_existing: bool = 
                 mtime = int(record.get("mtime", int(time.time())))
                 os.utime(path, (mtime, mtime), follow_symlinks=False)
 
-        # Re-verify staged regular files before any target swap.
         for record in manifest.get("files", []):
             if record.get("type") != "file":
                 continue
@@ -255,3 +259,85 @@ def execute_restore(root: Path, archive_path: Path, *, replace_existing: bool = 
             "mode": "guarded-restore",
             "errors": preflight["errors"] + [str(exc)],
         }
+
+
+def rollback_preflight(root: Path, rollback_path: Path) -> dict:
+    root = root.resolve()
+    rollback_path = rollback_path.expanduser().resolve()
+    runtime_available, bbs_running, errors = _runtime_guard(root, "rollback")
+    warnings: list[str] = []
+
+    expected_prefix = f".{root.name}.rollback-"
+    if rollback_path.parent != root.parent:
+        errors.append("rollback tree must be a sibling of the Mystic root")
+    if not rollback_path.name.startswith(expected_prefix):
+        errors.append(f"rollback tree name must start with {expected_prefix!r}")
+    if not rollback_path.is_dir():
+        errors.append("rollback tree does not exist or is not a directory")
+    if not root.exists():
+        warnings.append("current target root does not exist; rollback will install the saved tree directly")
+
+    return {
+        "ok": not errors,
+        "root": str(root),
+        "rollback_path": str(rollback_path),
+        "runtime_available": runtime_available,
+        "bbs_running": bbs_running,
+        "errors": errors,
+        "warnings": warnings,
+        "mode": "rollback-preflight-only",
+    }
+
+
+def execute_rollback(root: Path, rollback_path: Path) -> dict:
+    preflight = rollback_preflight(root, rollback_path)
+    if not preflight["ok"]:
+        return {**preflight, "rolled_back": False, "failed_tree_path": None, "mode": "guarded-rollback"}
+
+    root = Path(preflight["root"])
+    rollback_path = Path(preflight["rollback_path"])
+    failed_tree: Path | None = None
+    try:
+        if root.exists():
+            failed_tree = root.parent / f".{root.name}.failed-{int(time.time())}"
+            if failed_tree.exists():
+                raise OSError(f"failed-tree path already exists: {failed_tree}")
+            os.replace(root, failed_tree)
+        try:
+            os.replace(rollback_path, root)
+        except OSError:
+            if failed_tree is not None and failed_tree.exists() and not root.exists():
+                os.replace(failed_tree, root)
+                failed_tree = None
+            raise
+        return {
+            **preflight,
+            "ok": True,
+            "rolled_back": True,
+            "failed_tree_path": str(failed_tree) if failed_tree is not None else None,
+            "mode": "guarded-rollback",
+        }
+    except OSError as exc:
+        return {
+            **preflight,
+            "ok": False,
+            "rolled_back": False,
+            "failed_tree_path": str(failed_tree) if failed_tree is not None and failed_tree.exists() else None,
+            "mode": "guarded-rollback",
+            "errors": preflight["errors"] + [str(exc)],
+        }
+
+
+def discover_recovery_trees(root: Path) -> dict:
+    root = root.resolve()
+    parent = root.parent
+    rollback_prefix = f".{root.name}.rollback-"
+    failed_prefix = f".{root.name}.failed-"
+    rollback = sorted(str(path) for path in parent.glob(f"{rollback_prefix}*") if path.is_dir())
+    failed = sorted(str(path) for path in parent.glob(f"{failed_prefix}*") if path.is_dir())
+    return {
+        "root": str(root),
+        "rollback_trees": rollback,
+        "failed_trees": failed,
+        "cleanup_policy": "manual-only",
+    }
