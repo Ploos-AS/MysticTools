@@ -15,10 +15,15 @@ class WatchTests(unittest.TestCase):
                 "mis_running": False,
                 "active_process_count": 0,
             }
+            provider_value = {"available": False, "qualified": False, "nodes": []}
             with patch("mystictools.watch.runtime_snapshot", return_value=runtime_value), patch(
-                "mystictools.watch.nodes_snapshot", return_value={"nodes": [], "available": True}
+                "mystictools.watch.load_node_snapshot", return_value=provider_value
             ), patch(
+                "mystictools.watch.nodes_snapshot", return_value={"nodes": [], "available": True}
+            ) as nodes, patch(
                 "mystictools.watch.network_snapshot", return_value={"available": True, "listeners": [{}, {}]}
+            ), patch(
+                "mystictools.watch.health_snapshot", return_value={"status": "ok", "checks": [], "listener_count": 2}
             ), patch(
                 "mystictools.watch.fidonet_snapshot",
                 return_value={"poll": {"active": False}, "signals": {"busy_count": 1, "queued_outbound_count": 2, "inbound_packet_count": 3}},
@@ -30,8 +35,6 @@ class WatchTests(unittest.TestCase):
                 return_value={"available": True, "qualified": True, "state": {}, "ages": {}, "error": None, "path": "state"},
             ), patch(
                 "mystictools.watch.recovery_tree_counts", return_value={"rollback": 1, "failed": 2, "total": 3}
-            ), patch(
-                "mystictools.watch.metrics_snapshot", return_value={"health": "ok", "schema_version": 3}
             ):
                 snap = watch_snapshot(root)
         self.assertEqual(snap["health"], "ok")
@@ -39,6 +42,7 @@ class WatchTests(unittest.TestCase):
         self.assertEqual(len(snap["network"]["listeners"]), 2)
         self.assertEqual(snap["recovery_trees"]["total"], 3)
         self.assertEqual(snap["metrics_schema"], 3)
+        nodes.assert_called_once_with(root.resolve(), runtime=runtime_value, provider=provider_value)
 
     def test_render_watch_is_compact_and_privacy_safe(self):
         snapshot = {
