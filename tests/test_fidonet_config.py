@@ -17,6 +17,7 @@ class FidoNetConfigTests(unittest.TestCase):
             config = fidonet_config(root)
             self.assertFalse(config["qualified_config"])
             self.assertEqual(config["paths"]["inbound"]["source"], "mystic-default")
+            self.assertIsNone(config["config_error"])
 
     def test_ini_can_qualify_all_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
@@ -45,6 +46,23 @@ class FidoNetConfigTests(unittest.TestCase):
                 config = fidonet_config(root)
             self.assertEqual(config["paths"]["inbound"]["path"], "/override/in")
             self.assertEqual(config["paths"]["inbound"]["source"], "environment")
+
+    def test_relative_environment_path_is_root_relative(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.dict(os.environ, {"MYSTICTOOLS_FIDONET_INBOUND": "custom/in"}, clear=True):
+                config = fidonet_config(root)
+            self.assertEqual(config["paths"]["inbound"]["path"], str(root / "custom" / "in"))
+            self.assertEqual(config["paths"]["inbound"]["source"], "environment")
+
+    def test_invalid_ini_is_explicitly_unqualified(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
+            root = Path(tmp)
+            (root / "mystictools-fidonet.ini").write_text("not an ini file\n", encoding="utf-8")
+            config = fidonet_config(root)
+            self.assertFalse(config["qualified_config"])
+            self.assertIsNotNone(config["config_error"])
+            self.assertIn("config", config["config_error"].lower())
 
     def test_poll_context_detects_mis_poll_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
