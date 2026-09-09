@@ -1,0 +1,86 @@
+# MysticTools users snapshot exporter for Mystic Python 3
+#
+# Usage from Mystic Python: export_users <max_user_id>
+# The explicit upper bound is required because Mystic documents getuserid(ID)
+# but does not document a global user-enumeration/count API.
+
+import json
+import os
+import time
+
+import mystic_bbs as bbs
+
+
+SCHEMA_VERSION = 1
+OUTPUT = os.environ.get("MYSTICTOOLS_USER_SNAPSHOT", "mystictools-users.json")
+
+
+def _safe_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _pick(user, *names):
+    for name in names:
+        if name in user:
+            return user.get(name)
+    return None
+
+
+def main():
+    if bbs.param_count() < 1:
+        bbs.sysoplog(1, "MysticTools users exporter: max_user_id parameter required")
+        return
+
+    max_user_id = _safe_int(bbs.param_str(1))
+    if max_user_id is None or max_user_id < 1:
+        bbs.sysoplog(1, "MysticTools users exporter: invalid max_user_id")
+        return
+
+    users = []
+    for user_id in range(1, max_user_id + 1):
+        if bbs.shutdown():
+            return
+        try:
+            user = bbs.getuserid(user_id)
+        except Exception as exc:
+            bbs.sysoplog(1, "MysticTools users exporter: getuserid({}) failed: {}".format(user_id, exc))
+            continue
+        if user is None:
+            continue
+        users.append(
+            {
+                "id": user_id,
+                "handle": _pick(user, "handle"),
+                "security_level": _pick(user, "security", "level", "seclevel"),
+                "calls": _pick(user, "calls"),
+                "uploads": _pick(user, "uploads"),
+                "downloads": _pick(user, "downloads"),
+                "posts": _pick(user, "posts"),
+                "last_on": _pick(user, "laston", "last_on"),
+            }
+        )
+
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": int(time.time()),
+        "producer": "MysticTools export_users.mpy",
+        "max_user_id_scanned": max_user_id,
+        "users": users,
+    }
+
+    root = os.getcwd()
+    target = OUTPUT if os.path.isabs(OUTPUT) else os.path.join(root, OUTPUT)
+    temporary = target + ".tmp.{}".format(os.getpid())
+    try:
+        with open(temporary, "w") as handle:
+            json.dump(payload, handle, sort_keys=True)
+            handle.write("\n")
+        os.replace(temporary, target)
+    except Exception as exc:
+        bbs.sysoplog(1, "MysticTools users exporter failed: {}".format(exc))
+
+
+main()
