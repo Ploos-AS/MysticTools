@@ -8,6 +8,7 @@ from .fidonet import fidonet_snapshot
 from .node_provider import load_node_snapshot
 from .network import health_snapshot, network_snapshot
 from .runtime import runtime_snapshot
+from .users import users_snapshot
 
 SCHEMA_VERSION = 2
 
@@ -30,6 +31,9 @@ _HELP_TEXT = {
     "mystictools_node_fragment_fresh": "Number of per-node snapshot fragments within the configured freshness window.",
     "mystictools_node_fragment_stale": "Number of per-node snapshot fragments outside the configured freshness window.",
     "mystictools_node_fragment_max_age_seconds": "Configured maximum accepted age for per-node snapshot fragments.",
+    "mystictools_users_provider_available": "Whether a Mystic users snapshot exists and was readable.",
+    "mystictools_users_provider_qualified": "Whether the Mystic users snapshot passed schema qualification.",
+    "mystictools_users_count": "Number of privacy-safe Mystic user records in the qualified snapshot.",
     "mystictools_fidonet_config_qualified": "Whether all required FidoNet paths came from explicit qualified configuration.",
     "mystictools_fidonet_busy_files": "Number of detected FidoNet busy/control files.",
     "mystictools_fidonet_outbound_queue_candidates": "Number of detected outbound FidoNet queue/control candidates.",
@@ -49,6 +53,7 @@ def metrics_snapshot(root: Path) -> dict:
     operations = operational_checks(root)
     health = health_snapshot(runtime, network)
     provider = load_node_snapshot(root)
+    users = users_snapshot(root)
     fidonet = fidonet_snapshot(root, processes=processes)
     doors = doors_snapshot(root)
 
@@ -70,6 +75,9 @@ def metrics_snapshot(root: Path) -> dict:
         "mystictools_node_fragment_fresh": provider.get("fresh_fragment_count") if fragment_provider else None,
         "mystictools_node_fragment_stale": provider.get("stale_fragment_count") if fragment_provider else None,
         "mystictools_node_fragment_max_age_seconds": provider.get("max_age_seconds") if fragment_provider else None,
+        "mystictools_users_provider_available": 1 if users["available"] else 0,
+        "mystictools_users_provider_qualified": 1 if users["qualified"] else 0,
+        "mystictools_users_count": users["count"] if users["qualified"] else None,
         "mystictools_fidonet_config_qualified": 1 if fidonet["qualified_config"] else 0,
         "mystictools_fidonet_busy_files": fidonet["signals"]["busy_count"],
         "mystictools_fidonet_outbound_queue_candidates": fidonet["signals"]["queued_outbound_count"],
