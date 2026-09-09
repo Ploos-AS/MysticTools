@@ -73,14 +73,25 @@ def emit(payload: dict, as_json: bool, prometheus: bool = False) -> None:
         print(f"Mystic root: {payload['root']}")
         result = payload["result"]
         if not result["nodes"]:
-            print("No Mystic node processes detected.")
+            print("No Mystic node records detected.")
             return
         for item in result["nodes"]:
             node = item["node"] if item["node"] is not None else "?"
             runtime = f"{item['runtime_seconds']}s" if item["runtime_seconds"] is not None else "?"
-            print(f"node={node} pid={item['pid']} runtime={runtime} exe={item['exe'] or '?'}")
-            if item["argv"]:
-                print(f"  argv: {' '.join(item['argv'])}")
+            pid = item["pid"] if item["pid"] is not None else "?"
+            print(f"node={node} pid={pid} runtime={runtime} exe={item['exe'] or '?'}")
+            if item["arguments"]:
+                print(f"  args: {' '.join(item['arguments'])}")
+            native = item.get("native")
+            if item.get("native_qualified") and native:
+                fields = [
+                    f"user={native['user']}" if native.get("user") is not None else None,
+                    f"action={native['action']}" if native.get("action") is not None else None,
+                    f"server={native['server']}" if native.get("server") is not None else None,
+                ]
+                text = " ".join(field for field in fields if field)
+                if text:
+                    print(f"  native: {text}")
     elif command == "logs":
         print(f"Mystic root: {payload['root']}")
         result = payload["result"]
@@ -176,7 +187,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command == "metrics" and args.json and args.prometheus:
+        parser.error("--json and metrics --prometheus are mutually exclusive")
+
     root = detect_root(args.root)
     if root is None:
         payload = {"command": args.command, "ok": False, "error": "Mystic installation not found"}
@@ -247,7 +262,12 @@ def main(argv: list[str] | None = None) -> int:
             exit_code = EXIT_UNAVAILABLE
     elif args.command == "metrics":
         result = metrics_snapshot(root)
-        payload = {"command": "metrics", "ok": result["values"]["mystictools_up"] == 1, "root": str(root), "result": result}
+        payload = {
+            "command": "metrics",
+            "ok": result["values"]["mystictools_runtime_available"] == 1,
+            "root": str(root),
+            "result": result,
+        }
         prometheus = args.prometheus
         exit_code = EXIT_OK if payload["ok"] else EXIT_UNAVAILABLE
     elif args.command == "fidonet":
