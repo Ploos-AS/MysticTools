@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from pathlib import Path
 
 _NODE_RE = re.compile(r"^-N(\d+)$", re.IGNORECASE)
@@ -23,6 +24,33 @@ def _read_exe(path: Path) -> str | None:
         return None
 
 
+def _read_boot_time(proc_root: Path) -> float | None:
+    try:
+        for line in (proc_root / "stat").read_text(encoding="ascii", errors="replace").splitlines():
+            if line.startswith("btime "):
+                return float(line.split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def _read_process_start(path: Path, boot_time: float | None) -> dict:
+    if boot_time is None:
+        return {"started_at": None, "runtime_seconds": None}
+    try:
+        text = path.read_text(encoding="ascii", errors="replace")
+        right = text.rsplit(")", 1)[1].strip().split()
+        start_ticks = int(right[19])
+        ticks_per_second = os.sysconf("SC_CLK_TCK")
+        started_at = boot_time + (start_ticks / ticks_per_second)
+        return {
+            "started_at": round(started_at, 3),
+            "runtime_seconds": max(0, int(time.time() - started_at)),
+        }
+    except (OSError, ValueError, IndexError, TypeError):
+        return {"started_at": None, "runtime_seconds": None}
+
+
 def parse_node_number(argv: list[str]) -> int | None:
     for arg in argv[1:]:
         match = _NODE_RE.match(arg)
@@ -37,6 +65,7 @@ def discover_processes(proc_root: Path = Path("/proc")) -> dict:
     if not proc_root.is_dir():
         return {"source": "procfs", "available": False, "mis": [], "nodes": []}
 
+    boot_time = _read_boot_time(proc_root)
     for entry in proc_root.iterdir():
         if not entry.name.isdigit() or not entry.is_dir():
             continue
@@ -51,6 +80,7 @@ def discover_processes(proc_root: Path = Path("/proc")) -> dict:
             "pid": int(entry.name),
             "argv": argv,
             "exe": exe,
+            **_read_process_start(entry / "stat", boot_time),
         }
         if command == "mis" or exe_name == "mis":
             mis.append(record)
