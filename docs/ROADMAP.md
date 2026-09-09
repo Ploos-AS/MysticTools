@@ -71,10 +71,29 @@ Mystic may select a node number internally when `-N#` is not present. MysticTool
 
 ## M2 — Deeper Mystic-aware diagnostics
 
-Candidate next areas:
+### M2.1 — FidoNet filesystem diagnostics
 
-- FidoNet/netmail/echomail diagnostics
-- door/dropfile diagnostics
+- [x] Dedicated `fidonet` command
+- [x] Detect default EchoMail inbound/outbound/semaphore paths conservatively
+- [x] Detect `echomail.in`, `echomail.out` and `netmail.out` semaphores
+- [x] Detect outbound busy/control files without mutating them
+- [x] Count inbound packet/TIC and outbound queue candidates
+- [x] Human-readable and JSON output
+- [x] Explicitly mark default-path discovery as unqualified configuration
+- [x] Fixture tests
+
+### M2.2 — Qualified FidoNet configuration/provider
+
+- discover configured Mystic system/EchoMail paths from a qualified source
+- expose configured routing/poll context without leaking credentials
+- correlate MIS POLL/log state with filesystem signals
+
+### M2.3 — Doors/dropfiles
+
+- conservative door/dropfile discovery and validation
+
+### Later M2 areas
+
 - richer qualified Mystic-native node data
 - backup/restore design and consistency model
 - optional exporter/service packaging
