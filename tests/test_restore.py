@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from mystictools.backup import MANIFEST_NAME
-from mystictools.restore import restore_preflight, verify_backup
+from mystictools.restore import execute_restore, restore_preflight, verify_backup
 
 
 class RestoreTests(unittest.TestCase):
@@ -41,6 +41,14 @@ class RestoreTests(unittest.TestCase):
             info.size = len(encoded)
             archive.addfile(info, io.BytesIO(encoded))
         return archive_path
+
+    def _stopped_runtime(self):
+        return {
+            "processes": {"available": True, "mis": [], "nodes": []},
+            "mis_running": False,
+            "active_process_count": 0,
+            "version": {"version": None, "build": None, "source": None},
+        }
 
     def test_verify_good_archive(self):
         with tempfile.TemporaryDirectory() as td:
@@ -104,6 +112,46 @@ class RestoreTests(unittest.TestCase):
                 result = restore_preflight(root, archive)
             self.assertFalse(result["ok"])
             self.assertTrue(any("processes are running" in item for item in result["errors"]))
+
+    def test_execute_restore_into_missing_target(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "mystic"
+            archive = self._make_archive(base)
+            with patch("mystictools.restore.runtime_snapshot", return_value=self._stopped_runtime()):
+                result = execute_restore(root, archive)
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["restored"])
+            self.assertEqual((root / "data" / "test.txt").read_bytes(), b"hello")
+            self.assertIsNone(result["rollback_path"])
+
+    def test_execute_restore_requires_explicit_replace_for_existing_target(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "mystic"
+            root.mkdir()
+            (root / "old.txt").write_text("old", encoding="utf-8")
+            archive = self._make_archive(base)
+            with patch("mystictools.restore.runtime_snapshot", return_value=self._stopped_runtime()):
+                result = execute_restore(root, archive)
+            self.assertFalse(result["ok"])
+            self.assertTrue((root / "old.txt").exists())
+            self.assertTrue(any("--replace-existing" in item for item in result["errors"]))
+
+    def test_execute_restore_replaces_existing_and_keeps_rollback(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "mystic"
+            root.mkdir()
+            (root / "old.txt").write_text("old", encoding="utf-8")
+            archive = self._make_archive(base)
+            with patch("mystictools.restore.runtime_snapshot", return_value=self._stopped_runtime()):
+                result = execute_restore(root, archive, replace_existing=True)
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["restored"])
+            self.assertEqual((root / "data" / "test.txt").read_bytes(), b"hello")
+            rollback = Path(result["rollback_path"])
+            self.assertTrue((rollback / "old.txt").exists())
 
 
 if __name__ == "__main__":
