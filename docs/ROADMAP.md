@@ -250,9 +250,28 @@ MysticTools backs up the installation tree as opaque files. It does not interpre
 
 `restore` in M3.2 performs no filesystem mutation. Passing preflight proves only that the archive structure, manifest, recorded regular-file payloads and current stopped-runtime requirement passed the implemented checks. Actual restoration remains a separate, explicit milestone and must reuse these checks before writing to the target root.
 
+### M3.3 — Guarded restore execution
+
+- [x] Keep restore preflight as the default non-mutating behavior
+- [x] Require explicit `restore --execute` before any filesystem mutation
+- [x] Require explicit `--replace-existing` before replacing an existing Mystic root
+- [x] Extract to a staging directory beside the target root
+- [x] Avoid generic tar extraction and materialize only validated member types
+- [x] Re-verify staged regular-file SHA-256 values before target swap
+- [x] Preserve recorded regular-file modes and mtimes
+- [x] Atomically rename an existing target to a rollback path before commit
+- [x] Atomically move the staged tree into the target path
+- [x] Attempt automatic rollback if the final stage-to-target rename fails
+- [x] Keep the previous installation as explicit rollback data after successful replacement
+- [x] Add missing-target, explicit-replace and rollback-preservation tests
+
+### M3.3 qualification boundary
+
+M3.3 is intentionally explicit and conservative. Verification and stopped-runtime preflight still run before staging. Existing installations are never replaced without `--replace-existing`, and a successful replacement preserves the old tree rather than deleting it. The implementation uses same-parent staging and rename semantics for the final swap, but cannot make multiple filesystem renames into one indivisible transaction; the retained rollback tree is therefore part of the recovery contract.
+
 ### Later M3 areas
 
-- guarded restore execution with staging/rollback model
+- explicit rollback command and rollback lifecycle/cleanup policy
 - backup/restore Prometheus status history or state-file design
 
 ### Later areas
