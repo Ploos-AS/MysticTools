@@ -23,23 +23,28 @@ def _file_record(path: Path) -> dict:
     }
 
 
-def _scan_files(directory: Path, *, max_depth: int = 2) -> list[Path]:
+def _scan_files(directory: Path, *, max_depth: int = 2) -> tuple[list[Path], list[str]]:
     if not directory.is_dir():
-        return []
+        return [], []
     results: list[Path] = []
+    errors: list[str] = []
     stack: list[tuple[Path, int]] = [(directory, 0)]
     while stack:
         current, depth = stack.pop()
         try:
             entries = list(current.iterdir())
-        except OSError:
+        except OSError as exc:
+            errors.append(f"unable to scan {current}: {exc}")
             continue
         for entry in entries:
-            if entry.is_file():
-                results.append(entry)
-            elif entry.is_dir() and depth < max_depth:
-                stack.append((entry, depth + 1))
-    return results
+            try:
+                if entry.is_file():
+                    results.append(entry)
+                elif entry.is_dir() and depth < max_depth:
+                    stack.append((entry, depth + 1))
+            except OSError as exc:
+                errors.append(f"unable to inspect {entry}: {exc}")
+    return results, errors
 
 
 def _poll_context(processes: dict | None) -> dict:
@@ -77,30 +82,56 @@ def fidonet_snapshot(root: Path, processes: dict | None = None) -> dict:
         "outbound_root": outbound_root,
         "semaphore": semaphore,
     }
-    paths = {
-        name: {
+    paths = {}
+    scan_errors: list[str] = []
+    for name, path in candidates.items():
+        try:
+            exists = path.exists()
+            is_dir = path.is_dir()
+        except OSError as exc:
+            exists = False
+            is_dir = False
+            scan_errors.append(f"unable to inspect {path}: {exc}")
+        paths[name] = {
             "path": str(path),
-            "exists": path.exists(),
-            "is_dir": path.is_dir(),
+            "exists": exists,
+            "is_dir": is_dir,
             "qualified": config["paths"].get(name, {}).get("qualified") if name in config["paths"] else None,
             "source": config["paths"].get(name, {}).get("source") if name in config["paths"] else "derived",
         }
-        for name, path in candidates.items()
-    }
 
     semaphores = []
-    if semaphore.is_dir():
+    try:
+        semaphore_is_dir = semaphore.is_dir()
+    except OSError as exc:
+        semaphore_is_dir = False
+        scan_errors.append(f"unable to inspect {semaphore}: {exc}")
+    if semaphore_is_dir:
         for name in _SEMAPHORE_NAMES:
             path = semaphore / name
-            if path.exists():
-                semaphores.append({"name": name, **_file_record(path)})
+            try:
+                exists = path.exists()
+            except OSError as exc:
+                scan_errors.append(f"unable to inspect {path}: {exc}")
+                continue
+            if exists:
+                record = {"name": name, **_file_record(path)}
+                semaphores.append(record)
+                if not record["available"] and record["error"]:
+                    scan_errors.append(f"unable to stat {path}: {record['error']}")
 
-    outbound_files = _scan_files(outbound_root, max_depth=2)
+    outbound_files, outbound_errors = _scan_files(outbound_root, max_depth=2)
+    scan_errors.extend(outbound_errors)
     busy = [_file_record(path) for path in outbound_files if path.suffix.lower() in _BUSY_SUFFIXES]
     queue = [_file_record(path) for path in outbound_files if path.suffix.lower() in _PACKET_SUFFIXES]
 
-    inbound_files = _scan_files(inbound, max_depth=1)
+    inbound_files, inbound_errors = _scan_files(inbound, max_depth=1)
+    scan_errors.extend(inbound_errors)
     inbound_packets = [_file_record(path) for path in inbound_files if path.suffix.lower() in {".pkt", ".tic"}]
+
+    for record in [*busy, *queue, *inbound_packets]:
+        if not record["available"] and record["error"]:
+            scan_errors.append(f"unable to stat {record['path']}: {record['error']}")
 
     signals = {
         "echomail_in": any(item["name"] == "echomail.in" for item in semaphores),
@@ -111,9 +142,13 @@ def fidonet_snapshot(root: Path, processes: dict | None = None) -> dict:
         "inbound_packet_count": len(inbound_packets),
     }
 
+    if config.get("config_error"):
+        scan_errors.insert(0, config["config_error"])
+
     return {
         "source": config["provider"],
         "qualified_config": config["qualified_config"],
+        "qualified_scan": not scan_errors,
         "config": config,
         "paths": paths,
         "semaphores": semaphores,
@@ -122,4 +157,5 @@ def fidonet_snapshot(root: Path, processes: dict | None = None) -> dict:
         "inbound_packets": inbound_packets,
         "signals": signals,
         "poll": _poll_context(processes),
+        "scan_errors": scan_errors,
     }
