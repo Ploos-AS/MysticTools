@@ -113,10 +113,21 @@ Mystic documents that door drop files are created in each node's `tempN` directo
 
 ### M2.4 — Native node-data provider
 
-- qualify a richer Mystic-native node status source without guessing or mutating data
+- [x] Define versioned `mystictools-nodes.json` sidecar contract
+- [x] Optional `MYSTICTOOLS_NODE_SNAPSHOT` path override
+- [x] Validate schema before treating native data as qualified
+- [x] Merge qualified native node records with procfs process records by explicit node number
+- [x] Preserve unmatched native records without inventing PIDs
+- [x] Expose user/action/server/invisible/message-availability only from qualified provider data
+- [x] Provider and merge tests
+
+### M2.4 qualification boundary
+
+Mystic documents Who's Online, node action status and NodeSpy, but no stable external node-status file/API is documented for third-party readers. MysticTools therefore does not reverse-engineer Mystic runtime records. The sidecar contract is qualified only when a Mystic-side exporter explicitly produces schema version 1 data. Procfs remains the independent baseline.
 
 ### Later M2 areas
 
+- Mystic-side node snapshot exporter (Python/MPL) qualification
 - backup/restore design and consistency model
 - optional exporter/service packaging
 - optional Mystic-side Python/menu integration
