@@ -34,6 +34,10 @@ _HELP_TEXT = {
     "mystictools_users_provider_available": "Whether a Mystic users snapshot exists and was readable.",
     "mystictools_users_provider_qualified": "Whether the Mystic users snapshot passed schema qualification.",
     "mystictools_users_count": "Number of privacy-safe Mystic user records in the qualified snapshot.",
+    "mystictools_users_total_calls": "Sum of total calls across users in the qualified snapshot.",
+    "mystictools_users_total_uploads": "Sum of uploaded files across users in the qualified snapshot.",
+    "mystictools_users_total_downloads": "Sum of downloaded files across users in the qualified snapshot.",
+    "mystictools_users_total_posts": "Sum of message posts across users in the qualified snapshot.",
     "mystictools_fidonet_config_qualified": "Whether all required FidoNet paths came from explicit qualified configuration.",
     "mystictools_fidonet_busy_files": "Number of detected FidoNet busy/control files.",
     "mystictools_fidonet_outbound_queue_candidates": "Number of detected outbound FidoNet queue/control candidates.",
@@ -43,6 +47,14 @@ _HELP_TEXT = {
     "mystictools_door_dropfiles": "Number of detected known Mystic door dropfiles.",
     "mystictools_door_unreadable_dropfiles": "Number of detected dropfiles that were not readable.",
 }
+
+
+def _sum_user_field(users: dict, field: str) -> int | None:
+    if not users["qualified"]:
+        return None
+    values = [item.get(field) for item in users["users"]]
+    numeric = [value for value in values if isinstance(value, int) and not isinstance(value, bool) and value >= 0]
+    return sum(numeric) if numeric else None
 
 
 def metrics_snapshot(root: Path) -> dict:
@@ -78,6 +90,10 @@ def metrics_snapshot(root: Path) -> dict:
         "mystictools_users_provider_available": 1 if users["available"] else 0,
         "mystictools_users_provider_qualified": 1 if users["qualified"] else 0,
         "mystictools_users_count": users["count"] if users["qualified"] else None,
+        "mystictools_users_total_calls": _sum_user_field(users, "calls"),
+        "mystictools_users_total_uploads": _sum_user_field(users, "uploads"),
+        "mystictools_users_total_downloads": _sum_user_field(users, "downloads"),
+        "mystictools_users_total_posts": _sum_user_field(users, "posts"),
         "mystictools_fidonet_config_qualified": 1 if fidonet["qualified_config"] else 0,
         "mystictools_fidonet_busy_files": fidonet["signals"]["busy_count"],
         "mystictools_fidonet_outbound_queue_candidates": fidonet["signals"]["queued_outbound_count"],
