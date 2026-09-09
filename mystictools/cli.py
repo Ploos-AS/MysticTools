@@ -16,7 +16,7 @@ from .logs import DEFAULT_TAIL, MAX_TAIL, log_snapshot
 from .metrics import metrics_snapshot, render_prometheus
 from .network import health_snapshot, network_snapshot
 from .nodes import nodes_snapshot
-from .restore import restore_preflight
+from .restore import execute_restore, restore_preflight
 from .runtime import runtime_snapshot
 from .stats import stats_snapshot
 from .users import users_snapshot
@@ -80,7 +80,12 @@ def emit(payload: dict, as_json: bool, prometheus: bool = False) -> None:
             print(f"WARNING: {warning}")
         for error in result.get("errors", []):
             print(f"ERROR: {error}")
-        print(f"preflight: {'PASS' if result['ok'] else 'FAIL'}")
+        if result.get("restored"):
+            print("restore: COMPLETE")
+            if result.get("rollback_path"):
+                print(f"rollback: {result['rollback_path']}")
+        else:
+            print(f"preflight: {'PASS' if result['ok'] else 'FAIL'}")
     elif command == "who":
         print(f"Mystic root: {payload['root']}")
         nodes = payload["nodes"]
@@ -227,8 +232,10 @@ def build_parser() -> argparse.ArgumentParser:
     backup.add_argument("destination", help="new .tar.gz archive path outside the Mystic root")
     backup.add_argument("--allow-live", action="store_true", help="allow best-effort backup while Mystic/MIS is running")
     backup.add_argument("--allow-unverified", action="store_true", help="allow backup when runtime state cannot be verified")
-    restore = sub.add_parser("restore", help="verify a MysticTools backup and run non-destructive restore preflight")
+    restore = sub.add_parser("restore", help="verify/preflight a backup, or execute a guarded restore")
     restore.add_argument("archive", help="MysticTools .tar.gz backup archive")
+    restore.add_argument("--execute", action="store_true", help="perform the restore after successful verification and preflight")
+    restore.add_argument("--replace-existing", action="store_true", help="with --execute, replace an existing Mystic root and preserve it as rollback data")
     sub.add_parser("who", help="show detected Mystic node processes")
     sub.add_parser("nodes", help="show detailed Mystic node/session process information")
     sub.add_parser("users", help="show qualified privacy-safe Mystic user snapshot")
@@ -251,6 +258,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "metrics" and args.json and args.prometheus:
         parser.error("--json and metrics --prometheus are mutually exclusive")
+    if args.command == "restore" and args.replace_existing and not args.execute:
+        parser.error("restore --replace-existing requires --execute")
 
     root = detect_root(args.root)
     if root is None:
@@ -284,9 +293,14 @@ def main(argv: list[str] | None = None) -> int:
         payload = {"command": "backup", "ok": result["ok"] and result.get("created", False), "root": str(root), "result": result}
         exit_code = EXIT_OK if payload["ok"] else EXIT_WARNING
     elif args.command == "restore":
-        result = restore_preflight(root, Path(args.archive))
-        payload = {"command": "restore", "ok": result["ok"], "root": str(root), "result": result}
-        exit_code = EXIT_OK if result["ok"] else EXIT_WARNING
+        if args.execute:
+            result = execute_restore(root, Path(args.archive), replace_existing=args.replace_existing)
+            ok = result["ok"] and result.get("restored", False)
+        else:
+            result = restore_preflight(root, Path(args.archive))
+            ok = result["ok"]
+        payload = {"command": "restore", "ok": ok, "root": str(root), "result": result}
+        exit_code = EXIT_OK if ok else EXIT_WARNING
     elif args.command == "who":
         runtime = runtime_snapshot(root)
         payload = {"command": "who", "ok": runtime["processes"]["available"], "root": str(root), "nodes": runtime["processes"]["nodes"], "source": runtime["processes"]["source"], "source_available": runtime["processes"]["available"]}
