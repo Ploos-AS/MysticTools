@@ -199,21 +199,29 @@ MysticTools is a Linux-first sysop, diagnostics, observability and guarded-recov
 - [x] document v0.1.0 CLI/recovery/CI contract
 - [x] classify remaining work as qualification rather than feature expansion
 
-## v0.1.0 qualification gates — NEXT
+## M6 — Release qualification
 
-The intended tool surface is complete. Do not add new tools before v0.1.0 unless qualification finds a real missing requirement.
+### M6.0 — Real Mystic runtime qualification — IN PROGRESS
 
+- [x] define explicit real-runtime qualification protocol
+- [x] add machine-readable read-only qualification harness
+- [x] smoke qualification harness on Python 3.10/3.12 CI
 - [ ] Real Mystic 1.12 A48 Linux qualification in a controlled installation/UBB environment
 - [ ] Runtime-qualify `extras/mystic/export_node.mpy`, including output-location assumptions
 - [ ] Runtime-qualify `extras/mystic/export_users.mpy` and exact field aliases returned by `getuserid(ID)`
 - [ ] Qualify FidoNet diagnostics against explicit real Mystic paths and representative state
 - [ ] Qualify door discovery against real `tempN` directories
 - [ ] End-to-end disposable offline backup -> verify -> restore -> rollback qualification
+
+See `M6_RUNTIME_QUALIFICATION.md` for the execution protocol.
+
+### M6.1 — Release candidate
+
+- [ ] Review/redact M6 qualification evidence and record final PASS report
 - [ ] Final release-candidate CI + published OCI smoke
+- [ ] Confirm metric schema 3 and CLI surface unchanged since freeze
 - [ ] Version bump `0.1.0.dev0` -> `0.1.0`
 - [ ] Release notes, tag and publication
-
-See `RELEASE_CONTRACT.md` for the detailed release gate and `PROMETHEUS.md` for the metric compatibility contract.
 
 ## Post-v0.1.0 candidates
 
