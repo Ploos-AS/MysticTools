@@ -1,0 +1,72 @@
+# MysticTools per-node snapshot exporter for Mystic Python 3
+#
+# Intended to be invoked from Mystic (GZ/menu hook or another Mystic Python
+# script). It writes only the current node's fragment, avoiding shared-file
+# races between concurrent sessions.
+
+import json
+import os
+import time
+
+import mystic_bbs as bbs
+
+
+SCHEMA_VERSION = 1
+FRAGMENT_DIR = os.environ.get("MYSTICTOOLS_NODE_FRAGMENT_DIR", "mystictools-nodes.d")
+
+
+def _bool_from_mci(value):
+    text = str(value).strip().lower()
+    return text in ("yes", "on", "true", "1")
+
+
+def _safe_mci(code):
+    try:
+        return bbs.mci2str(code)
+    except Exception:
+        return None
+
+
+def main():
+    node_text = _safe_mci("ND")
+    try:
+        node = int(str(node_text).strip())
+    except (TypeError, ValueError):
+        bbs.sysoplog(1, "MysticTools exporter: unable to determine current node")
+        return
+
+    action = None
+    if bbs.param_count() >= 1:
+        action = bbs.param_str(1)
+
+    record = {
+        "node": node,
+        "user": _safe_mci("UH"),
+        "action": action,
+        "server": _safe_mci("BD"),
+        "invisible": _bool_from_mci(_safe_mci("IL")),
+        "available_for_messages": _bool_from_mci(_safe_mci("AV")),
+    }
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": int(time.time()),
+        "producer": "MysticTools export_node.mpy",
+        "nodes": [record],
+    }
+
+    root = os.getcwd()
+    directory = FRAGMENT_DIR if os.path.isabs(FRAGMENT_DIR) else os.path.join(root, FRAGMENT_DIR)
+    try:
+        if not os.path.isdir(directory):
+            os.makedirs(directory)
+        target = os.path.join(directory, "node-{}.json".format(node))
+        temporary = target + ".tmp.{}".format(os.getpid())
+        with open(temporary, "w") as handle:
+            json.dump(payload, handle, sort_keys=True)
+            handle.write("\n")
+        os.replace(temporary, target)
+    except Exception as exc:
+        bbs.sysoplog(1, "MysticTools exporter failed: {}".format(exc))
+
+
+main()
