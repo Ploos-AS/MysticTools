@@ -6,6 +6,7 @@ from pathlib import Path
 from . import cli
 from .core import detect_root
 from .recovery_state import safe_record_event
+from .watch_cli import main as watch_main
 
 
 def _explicit_root(argv: list[str]) -> str | None:
@@ -19,6 +20,15 @@ def _explicit_root(argv: list[str]) -> str | None:
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+
+    # `watch` has its own refresh-loop parser but is also exposed through the
+    # umbrella command. Preserve global --root/--json arguments by removing
+    # only the command token.
+    if "watch" in args:
+        watch_args = list(args)
+        watch_args.remove("watch")
+        return watch_main(watch_args)
+
     exit_code = cli.main(args)
 
     command = next((arg for arg in args if arg in {"backup", "restore"}), None)
