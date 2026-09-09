@@ -269,9 +269,25 @@ MysticTools backs up the installation tree as opaque files. It does not interpre
 
 M3.3 is intentionally explicit and conservative. Verification and stopped-runtime preflight still run before staging. Existing installations are never replaced without `--replace-existing`, and a successful replacement preserves the old tree rather than deleting it. The implementation uses same-parent staging and rename semantics for the final swap, but cannot make multiple filesystem renames into one indivisible transaction; the retained rollback tree is therefore part of the recovery contract.
 
+### M3.4 — Guarded rollback lifecycle
+
+- [x] Add rollback preflight with mandatory stopped-runtime verification
+- [x] Accept only sibling `.<root>.rollback-*` trees associated with the selected Mystic root
+- [x] Add explicit `mysticrollback` entry point
+- [x] Keep rollback preflight non-mutating unless `--execute` is supplied
+- [x] Preserve the current target as `.<root>.failed-*` before activating rollback data
+- [x] Attempt automatic recovery of the current target if rollback activation fails
+- [x] Add `mysticrollback --list` recovery-tree discovery
+- [x] Define recovery-tree cleanup as manual-only
+- [x] Never automatically delete rollback or failed trees
+- [x] Add rollback engine and CLI tests
+
+### M3.4 qualification boundary
+
+Rollback is deliberately not an automatic cleanup mechanism. It accepts only the naming/location contract created by guarded restore, requires Mystic/MIS to be verifiably stopped, and preserves the tree being replaced as separate failed-state evidence. Recovery trees remain until the sysop explicitly removes them after independent validation of the active installation; MysticTools performs no age-based or count-based deletion in M3.4.
+
 ### Later M3 areas
 
-- explicit rollback command and rollback lifecycle/cleanup policy
 - backup/restore Prometheus status history or state-file design
 
 ### Later areas
