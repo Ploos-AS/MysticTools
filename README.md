@@ -14,6 +14,9 @@ MysticTools provides small, script-friendly tools around a Mystic installation w
 - Report ownership, permissions and free disk space
 - Discover and read candidate Mystic logs safely
 - Show detected Mystic sessions with conservative node-number handling
+- Discover listeners owned by MIS/Mystic and report health
+- Export structured JSON and Prometheus-friendly metrics
+- Inspect conservative FidoNet filesystem signals
 - Human-readable and JSON output
 - Architecture-neutral Linux implementation
 
@@ -23,7 +26,12 @@ MysticTools provides small, script-friendly tools around a Mystic installation w
 mystictools status
 mystictools check
 mystictools who
+mystictools nodes
 mystictools logs
+mystictools network
+mystictools health
+mystictools metrics
+mystictools fidonet
 ```
 
 Common options:
@@ -34,6 +42,17 @@ Common options:
 ```
 
 Root detection order: `--root`, `MYSTIC_ROOT`, `/mystic`, `/opt/mystic`, `/srv/mystic`.
+
+### FidoNet diagnostics
+
+`fidonet` is read-only and currently uses documented Mystic default path conventions only. Mystic allows these paths to be configured, so the result is explicitly marked `qualified_config=false` until a qualified configuration provider is added.
+
+It reports default EchoMail inbound/outbound/semaphore path presence, `echomail.in`, `echomail.out` and `netmail.out` semaphores, outbound busy/control files, and packet/TIC queue candidates. It never removes busy flags or modifies queue contents.
+
+```sh
+mystictools fidonet
+mystictools --json fidonet
+```
 
 ### Logs
 
@@ -52,7 +71,7 @@ The default tail is 50 matching lines per selected file and the hard maximum is 
 
 ### Runtime discovery
 
-`status` and `who` inspect `/proc` directly and do not require systemd. Mystic can select node numbers internally, so if a running `mystic` process has no explicit `-N#` argument MysticTools reports the node as `?`/`null` instead of guessing.
+`status`, `who`, `nodes`, `network` and `health` inspect Linux procfs directly and do not require systemd. Mystic can select node numbers internally, so if a running `mystic` process has no explicit `-N#` argument MysticTools reports the node as `?`/`null` instead of guessing.
 
 ### Exit codes
 
