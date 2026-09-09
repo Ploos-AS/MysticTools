@@ -8,10 +8,11 @@ from .doors import doors_snapshot
 from .fidonet import fidonet_snapshot
 from .node_provider import load_node_snapshot
 from .network import health_snapshot, network_snapshot
+from .recovery_state import read_state, recovery_tree_counts
 from .runtime import runtime_snapshot
 from .users import users_snapshot
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _HEALTH_CODES = {"ok": 0, "warning": 1, "unknown": 2, "critical": 3}
 _DOCTOR_CODES = {"ok": 0, "warning": 1, "critical": 2, "unavailable": 3}
@@ -52,6 +53,17 @@ _HELP_TEXT = {
     "mystictools_door_node_temp_dirs": "Number of detected Mystic node temp directories.",
     "mystictools_door_dropfiles": "Number of detected known Mystic door dropfiles.",
     "mystictools_door_unreadable_dropfiles": "Number of detected dropfiles that were not readable.",
+    "mystictools_recovery_state_available": "Whether the recovery state file exists and is readable.",
+    "mystictools_recovery_state_qualified": "Whether the recovery state file passed schema qualification.",
+    "mystictools_last_backup_success": "Whether the last recorded backup command succeeded.",
+    "mystictools_last_backup_age_seconds": "Age in seconds of the last recorded backup result.",
+    "mystictools_last_restore_success": "Whether the last recorded executed restore succeeded.",
+    "mystictools_last_restore_age_seconds": "Age in seconds of the last recorded executed restore result.",
+    "mystictools_last_rollback_success": "Whether the last recorded executed rollback succeeded.",
+    "mystictools_last_rollback_age_seconds": "Age in seconds of the last recorded executed rollback result.",
+    "mystictools_recovery_rollback_trees": "Number of preserved rollback recovery trees.",
+    "mystictools_recovery_failed_trees": "Number of preserved failed/replaced recovery trees.",
+    "mystictools_recovery_trees": "Total number of preserved recovery trees.",
 }
 
 
@@ -61,6 +73,15 @@ def _sum_user_field(users: dict, field: str) -> int | None:
     values = [item.get(field) for item in users["users"]]
     numeric = [value for value in values if isinstance(value, int) and not isinstance(value, bool) and value >= 0]
     return sum(numeric) if numeric else None
+
+
+def _event_success(state: dict, operation: str) -> int | None:
+    if not state["qualified"] or not state["state"]:
+        return None
+    event = state["state"].get("events", {}).get(operation)
+    if not isinstance(event, dict) or not isinstance(event.get("success"), bool):
+        return None
+    return 1 if event["success"] else 0
 
 
 def metrics_snapshot(root: Path) -> dict:
@@ -75,6 +96,8 @@ def metrics_snapshot(root: Path) -> dict:
     users = users_snapshot(root)
     fidonet = fidonet_snapshot(root, processes=processes)
     doors = doors_snapshot(root)
+    recovery_state = read_state(root)
+    recovery_trees = recovery_tree_counts(root)
 
     fragment_provider = str(provider.get("source", "")).startswith("fragment-")
     values = {
@@ -113,6 +136,17 @@ def metrics_snapshot(root: Path) -> dict:
         "mystictools_door_node_temp_dirs": doors["node_temp_count"],
         "mystictools_door_dropfiles": doors["dropfile_count"],
         "mystictools_door_unreadable_dropfiles": doors["unreadable_dropfile_count"],
+        "mystictools_recovery_state_available": 1 if recovery_state["available"] else 0,
+        "mystictools_recovery_state_qualified": 1 if recovery_state["qualified"] else 0,
+        "mystictools_last_backup_success": _event_success(recovery_state, "backup"),
+        "mystictools_last_backup_age_seconds": recovery_state["ages"].get("backup") if recovery_state["qualified"] else None,
+        "mystictools_last_restore_success": _event_success(recovery_state, "restore"),
+        "mystictools_last_restore_age_seconds": recovery_state["ages"].get("restore") if recovery_state["qualified"] else None,
+        "mystictools_last_rollback_success": _event_success(recovery_state, "rollback"),
+        "mystictools_last_rollback_age_seconds": recovery_state["ages"].get("rollback") if recovery_state["qualified"] else None,
+        "mystictools_recovery_rollback_trees": recovery_trees["rollback"],
+        "mystictools_recovery_failed_trees": recovery_trees["failed"],
+        "mystictools_recovery_trees": recovery_trees["total"],
     }
     return {
         "schema_version": SCHEMA_VERSION,
