@@ -42,6 +42,14 @@ def record_event(root: Path, operation: str, success: bool, **details) -> None:
         raise
 
 
+def safe_record_event(root: Path, operation: str, success: bool, **details) -> bool:
+    try:
+        record_event(root, operation, success, **details)
+        return True
+    except (OSError, TypeError, ValueError):
+        return False
+
+
 def read_state(root: Path, now: int | None = None) -> dict:
     path = state_path(root)
     if not path.is_file():
