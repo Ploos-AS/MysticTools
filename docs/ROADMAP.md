@@ -61,11 +61,21 @@ Mystic may select a node number internally when `-N#` is not present. MysticTool
 
 ### M1.4 — Metrics groundwork
 
-- structured statistics and exporter-friendly data model
+- [x] Versioned structured metrics snapshot
+- [x] Runtime, listener, log, disk and health metrics
+- [x] `metrics` CLI command
+- [x] JSON output via global `--json`
+- [x] Prometheus exposition via `metrics --prometheus`
+- [x] Omit unavailable numeric metrics instead of inventing values
+- [x] Metrics model and renderer tests
 
-## Later
+## M2 — Deeper Mystic-aware diagnostics
 
-- FidoNet diagnostics
+Candidate next areas:
+
+- FidoNet/netmail/echomail diagnostics
 - door/dropfile diagnostics
-- backup/restore tooling
+- richer qualified Mystic-native node data
+- backup/restore design and consistency model
+- optional exporter/service packaging
 - optional Mystic-side Python/menu integration
