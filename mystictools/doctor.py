@@ -85,12 +85,20 @@ def doctor_snapshot(
     if fidonet["qualified_config"]:
         findings.append(_finding("fidonet_config", "ok", "FidoNet paths are explicitly qualified."))
     else:
-        findings.append(_finding("fidonet_config", "warning", "FidoNet paths include unqualified/default configuration."))
+        config_error = (fidonet.get("config") or {}).get("config_error")
+        findings.append(_finding("fidonet_config", "warning", config_error or "FidoNet paths include unqualified/default configuration."))
+    if not fidonet.get("qualified_scan", True):
+        errors = fidonet.get("scan_errors") or []
+        detail = f"FidoNet filesystem scan degraded with {len(errors)} error(s)."
+        findings.append(_finding("fidonet_scan", "warning", detail))
     if fidonet["signals"]["busy_count"]:
         findings.append(_finding("fidonet_busy", "warning", f"{fidonet['signals']['busy_count']} FidoNet busy/control file(s) detected."))
     else:
         findings.append(_finding("fidonet_busy", "ok", "No FidoNet busy/control files detected."))
 
+    door_scan_errors = doors.get("scan_errors") or []
+    if not doors.get("qualified", True) or door_scan_errors:
+        findings.append(_finding("doors_scan", "warning", f"Door filesystem scan degraded with {len(door_scan_errors)} error(s)."))
     if doors["unreadable_dropfile_count"]:
         findings.append(_finding("doors", "warning", f"{doors['unreadable_dropfile_count']} unreadable door dropfile(s) detected."))
     else:
