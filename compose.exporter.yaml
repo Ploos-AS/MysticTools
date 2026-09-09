@@ -1,0 +1,17 @@
+services:
+  mystictools-exporter:
+    build:
+      context: .
+    image: ghcr.io/ploos-as/mystictools:dev
+    command: ["--root", "/mystic", "--bind", "0.0.0.0", "--port", "9108"]
+    pid: host
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - ${MYSTIC_ROOT:-/opt/mystic}:/mystic:ro
+    ports:
+      - "127.0.0.1:9108:9108"
+    restart: unless-stopped
