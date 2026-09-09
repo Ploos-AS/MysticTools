@@ -11,12 +11,13 @@ from .users import users_snapshot
 SCHEMA_VERSION = 1
 
 
-def _sum_numeric(records: list[dict], field: str) -> int | None:
+def _sum_complete_numeric(records: list[dict], field: str) -> int | None:
     values = [item.get(field) for item in records]
-    numeric = [value for value in values if isinstance(value, int) and not isinstance(value, bool) and value >= 0]
-    if not numeric:
+    if not values:
         return None
-    return sum(numeric)
+    if any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in values):
+        return None
+    return sum(values)
 
 
 def stats_snapshot(root: Path) -> dict:
@@ -27,13 +28,14 @@ def stats_snapshot(root: Path) -> dict:
     fidonet = fidonet_snapshot(root, processes=processes)
     doors = doors_snapshot(root)
 
-    user_records = users["users"] if users["qualified"] else []
+    users_complete = bool(users.get("qualified") and users.get("complete_scan") and users.get("fresh"))
+    user_records = users["users"] if users_complete else []
     user_totals = {
-        "users": users["count"] if users["qualified"] else None,
-        "calls": _sum_numeric(user_records, "calls") if users["qualified"] else None,
-        "uploads": _sum_numeric(user_records, "uploads") if users["qualified"] else None,
-        "downloads": _sum_numeric(user_records, "downloads") if users["qualified"] else None,
-        "posts": _sum_numeric(user_records, "posts") if users["qualified"] else None,
+        "users": users["count"] if users_complete else None,
+        "calls": _sum_complete_numeric(user_records, "calls") if users_complete else None,
+        "uploads": _sum_complete_numeric(user_records, "uploads") if users_complete else None,
+        "downloads": _sum_complete_numeric(user_records, "downloads") if users_complete else None,
+        "posts": _sum_complete_numeric(user_records, "posts") if users_complete else None,
     }
 
     runtime_available = bool(processes["available"])
@@ -42,6 +44,8 @@ def stats_snapshot(root: Path) -> dict:
         "root": str(root),
         "sources": {
             "users_qualified": users["qualified"],
+            "users_fresh": users.get("fresh", False),
+            "users_complete": users.get("complete_scan", False),
             "runtime_available": runtime_available,
             "network_available": network["available"],
             "fidonet_config_qualified": fidonet["qualified_config"],
