@@ -24,8 +24,12 @@ _HELP_TEXT = {
     "mystictools_disk_free_percent": "Free filesystem percentage for the Mystic root.",
     "mystictools_operational_warnings": "Number of current operational warnings.",
     "mystictools_health_status": "Health status code: 0 ok, 1 warning, 2 unknown, 3 critical.",
-    "mystictools_node_provider_available": "Whether a Mystic native node sidecar exists and was readable.",
-    "mystictools_node_provider_qualified": "Whether the native node sidecar passed schema qualification.",
+    "mystictools_node_provider_available": "Whether a Mystic native node provider exists and was readable.",
+    "mystictools_node_provider_qualified": "Whether the native node provider passed qualification.",
+    "mystictools_node_fragment_count": "Number of per-node Mystic snapshot fragment files discovered.",
+    "mystictools_node_fragment_fresh": "Number of per-node snapshot fragments within the configured freshness window.",
+    "mystictools_node_fragment_stale": "Number of per-node snapshot fragments outside the configured freshness window.",
+    "mystictools_node_fragment_max_age_seconds": "Configured maximum accepted age for per-node snapshot fragments.",
     "mystictools_fidonet_config_qualified": "Whether all required FidoNet paths came from explicit qualified configuration.",
     "mystictools_fidonet_busy_files": "Number of detected FidoNet busy/control files.",
     "mystictools_fidonet_outbound_queue_candidates": "Number of detected outbound FidoNet queue/control candidates.",
@@ -48,6 +52,7 @@ def metrics_snapshot(root: Path) -> dict:
     fidonet = fidonet_snapshot(root, processes=processes)
     doors = doors_snapshot(root)
 
+    fragment_provider = str(provider.get("source", "")).startswith("fragment-")
     values = {
         "mystictools_runtime_available": 1 if runtime_available else 0,
         "mystictools_network_available": 1 if network["available"] else 0,
@@ -61,6 +66,10 @@ def metrics_snapshot(root: Path) -> dict:
         "mystictools_health_status": _HEALTH_CODES.get(health["status"], 2),
         "mystictools_node_provider_available": 1 if provider["available"] else 0,
         "mystictools_node_provider_qualified": 1 if provider["qualified"] else 0,
+        "mystictools_node_fragment_count": provider.get("fragment_count") if fragment_provider else None,
+        "mystictools_node_fragment_fresh": provider.get("fresh_fragment_count") if fragment_provider else None,
+        "mystictools_node_fragment_stale": provider.get("stale_fragment_count") if fragment_provider else None,
+        "mystictools_node_fragment_max_age_seconds": provider.get("max_age_seconds") if fragment_provider else None,
         "mystictools_fidonet_config_qualified": 1 if fidonet["qualified_config"] else 0,
         "mystictools_fidonet_busy_files": fidonet["signals"]["busy_count"],
         "mystictools_fidonet_outbound_queue_candidates": fidonet["signals"]["queued_outbound_count"],
