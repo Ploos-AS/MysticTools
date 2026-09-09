@@ -19,6 +19,38 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - run: python -m mystictools --help
 
+  package-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheel and sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+          test -n "$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+          test -n "$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)"
+      - name: Install wheel and smoke console scripts
+        run: |
+          python -m venv /tmp/mystictools-wheel
+          /tmp/mystictools-wheel/bin/pip install dist/*.whl
+          for command in \
+            mystictools mysticstatus mysticcheck mysticwho mysticnodes \
+            mysticwatch mysticlog mysticnet mysticfidonet mysticdoors \
+            mysticusers mysticstats mystichealth mysticdoctor mysticbackup \
+            mysticrestore mysticrollback mysticmetrics mysticexporter; do
+            /tmp/mystictools-wheel/bin/$command --help >/dev/null
+          done
+      - name: Install sdist and smoke package
+        run: |
+          python -m venv /tmp/mystictools-sdist
+          /tmp/mystictools-sdist/bin/pip install dist/*.tar.gz
+          /tmp/mystictools-sdist/bin/mystictools --help >/dev/null
+          /tmp/mystictools-sdist/bin/mysticmetrics --help >/dev/null
+          /tmp/mystictools-sdist/bin/mysticrestore --help >/dev/null
+
   oci-build:
     runs-on: ubuntu-latest
     steps:
