@@ -16,6 +16,7 @@ from .logs import DEFAULT_TAIL, MAX_TAIL, log_snapshot
 from .metrics import metrics_snapshot, render_prometheus
 from .network import health_snapshot, network_snapshot
 from .nodes import nodes_snapshot
+from .restore import restore_preflight
 from .runtime import runtime_snapshot
 from .stats import stats_snapshot
 from .users import users_snapshot
@@ -69,6 +70,17 @@ def emit(payload: dict, as_json: bool, prometheus: bool = False) -> None:
             print(f"files: {result['manifest']['file_count']}")
             print(f"archive size: {result['archive_size']} bytes")
             print(f"sha256: {result['archive_sha256']}")
+    elif command == "restore":
+        result = payload["result"]
+        print(f"Mystic root: {payload['root']}")
+        print(f"archive: {result['archive']}")
+        print(f"mode: {result['mode']}")
+        print(f"verified files: {result['verified_files']}")
+        for warning in result.get("warnings", []):
+            print(f"WARNING: {warning}")
+        for error in result.get("errors", []):
+            print(f"ERROR: {error}")
+        print(f"preflight: {'PASS' if result['ok'] else 'FAIL'}")
     elif command == "who":
         print(f"Mystic root: {payload['root']}")
         nodes = payload["nodes"]
@@ -215,6 +227,8 @@ def build_parser() -> argparse.ArgumentParser:
     backup.add_argument("destination", help="new .tar.gz archive path outside the Mystic root")
     backup.add_argument("--allow-live", action="store_true", help="allow best-effort backup while Mystic/MIS is running")
     backup.add_argument("--allow-unverified", action="store_true", help="allow backup when runtime state cannot be verified")
+    restore = sub.add_parser("restore", help="verify a MysticTools backup and run non-destructive restore preflight")
+    restore.add_argument("archive", help="MysticTools .tar.gz backup archive")
     sub.add_parser("who", help="show detected Mystic node processes")
     sub.add_parser("nodes", help="show detailed Mystic node/session process information")
     sub.add_parser("users", help="show qualified privacy-safe Mystic user snapshot")
@@ -269,6 +283,10 @@ def main(argv: list[str] | None = None) -> int:
         result = create_backup(root, Path(args.destination), allow_live=args.allow_live, allow_unverified=args.allow_unverified)
         payload = {"command": "backup", "ok": result["ok"] and result.get("created", False), "root": str(root), "result": result}
         exit_code = EXIT_OK if payload["ok"] else EXIT_WARNING
+    elif args.command == "restore":
+        result = restore_preflight(root, Path(args.archive))
+        payload = {"command": "restore", "ok": result["ok"], "root": str(root), "result": result}
+        exit_code = EXIT_OK if result["ok"] else EXIT_WARNING
     elif args.command == "who":
         runtime = runtime_snapshot(root)
         payload = {"command": "who", "ok": runtime["processes"]["available"], "root": str(root), "nodes": runtime["processes"]["nodes"], "source": runtime["processes"]["source"], "source_available": runtime["processes"]["available"]}
