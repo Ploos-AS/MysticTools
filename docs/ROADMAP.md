@@ -99,11 +99,24 @@ Mystic's System Paths are configurable, but MysticTools does not reverse-enginee
 
 ### M2.3 — Doors/dropfiles
 
-- conservative door/dropfile discovery and validation
+- [x] Dedicated `doors` command
+- [x] Discover per-node `tempN` directories
+- [x] Detect DOOR.SYS, CHAIN.TXT, DORINFO1.DEF and door32.sys
+- [x] Report format, size, timestamp and readability without parsing session contents
+- [x] Preserve case-sensitive Mystic dropfile conventions
+- [x] Human-readable and JSON output
+- [x] Fixture tests
+
+### M2.3 qualification boundary
+
+Mystic documents that door drop files are created in each node's `tempN` directory. MysticTools treats that filesystem convention and the documented dropfile names as qualified, but M2.3 intentionally does not parse dropfile contents because those files can contain user/session details.
+
+### M2.4 — Native node-data provider
+
+- qualify a richer Mystic-native node status source without guessing or mutating data
 
 ### Later M2 areas
 
-- richer qualified Mystic-native node data
 - backup/restore design and consistency model
 - optional exporter/service packaging
 - optional Mystic-side Python/menu integration
