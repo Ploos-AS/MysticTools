@@ -13,7 +13,9 @@ MysticTools provides small, script-friendly tools around a Mystic installation w
 - Report ownership, permissions and free disk space
 - Discover and read candidate Mystic logs safely
 - Show detected Mystic sessions with conservative node-number handling
-- Optionally enrich nodes from a qualified `mystictools-nodes.json` sidecar
+- Optionally enrich nodes from qualified Mystic-side node snapshots
+- Read a privacy-safe qualified Mystic user snapshot
+- Aggregate user, runtime, FidoNet and door statistics
 - Discover listeners owned by MIS/Mystic and report health
 - Inspect FidoNet paths, semaphores, queue candidates and MIS POLL state
 - Discover Mystic node temp directories and known door dropfiles without reading session contents
@@ -27,6 +29,8 @@ mystictools status
 mystictools check
 mystictools who
 mystictools nodes
+mystictools users
+mystictools stats
 mystictools logs
 mystictools network
 mystictools health
@@ -44,6 +48,24 @@ Common options:
 
 Root detection order: `--root`, `MYSTIC_ROOT`, `/mystic`, `/opt/mystic`, `/srv/mystic`.
 
+### Users and statistics
+
+`users` reads the optional schema-v1 `mystictools-users.json` sidecar. The public schema is deliberately privacy-safe and contains only permanent user ID, handle, security level, calls, uploads, downloads, posts and last-on. It does not expose passwords, e-mail, real name, addresses, phone numbers, IP/host data or notes.
+
+```sh
+mystictools users
+mystictools --json users
+```
+
+`extras/mystic/export_users.mpy` can generate the sidecar from inside Mystic using the documented `getuserid(ID)` API. Because Mystic does not document a global user-count enumeration API, the exporter requires an explicit maximum user ID and scans only that range.
+
+`stats` is an aggregation layer over existing qualified providers. It combines user totals with runtime/MIS/node/listener state, FidoNet signals and door diagnostics. Unavailable source values remain unavailable rather than being reported as false zero totals.
+
+```sh
+mystictools stats
+mystictools --json stats
+```
+
 ### Prometheus
 
 Prometheus support is optional. MysticTools remains fully usable with ordinary human-readable or JSON output.
@@ -54,9 +76,9 @@ mystictools --json metrics
 mystictools metrics --prometheus
 ```
 
-Public Prometheus metric names use the `mystictools_*` namespace. Current coverage includes runtime/procfs availability, MIS and node processes, network listeners, logs, disk space, health, native node-provider qualification, FidoNet signals and door/dropfile diagnostics. Source-dependent values are omitted when their source is unavailable instead of being reported as a false zero.
+Public Prometheus metric names use the `mystictools_*` namespace. Current coverage includes runtime/procfs availability, MIS and node processes, network listeners, logs, disk space, health, native node-provider qualification/freshness, privacy-safe user-provider qualification and aggregate user totals, FidoNet signals and door/dropfile diagnostics. Source-dependent values are omitted when their source is unavailable instead of being reported as a false zero.
 
-`--json` and `metrics --prometheus` are mutually exclusive output modes.
+No user ID or handle is used as a Prometheus label. `--json` and `metrics --prometheus` are mutually exclusive output modes.
 
 ### FidoNet diagnostics
 
@@ -95,7 +117,7 @@ The default tail is 50 matching lines per selected file and the hard maximum is 
 
 `status`, `who`, `nodes`, `network` and `health` inspect Linux procfs directly and do not require systemd. Mystic can select node numbers internally, so if a running `mystic` process has no explicit `-N#` argument MysticTools reports the node as `?`/`null` instead of guessing.
 
-A qualified schema-v1 `mystictools-nodes.json` sidecar can optionally enrich explicit node IDs with Mystic-side fields. `MYSTICTOOLS_NODE_SNAPSHOT` can point to an alternate sidecar path. MysticTools does not reverse-engineer undocumented Mystic runtime record formats.
+A qualified schema-v1 `mystictools-nodes.json` sidecar or fresh per-node fragments under `mystictools-nodes.d/` can optionally enrich explicit node IDs with Mystic-side fields. `MYSTICTOOLS_NODE_SNAPSHOT`, `MYSTICTOOLS_NODE_FRAGMENT_DIR` and `MYSTICTOOLS_NODE_MAX_AGE` control the optional provider. MysticTools does not reverse-engineer undocumented Mystic runtime record formats.
 
 ### Exit codes
 
