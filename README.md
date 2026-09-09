@@ -2,31 +2,20 @@
 
 Linux-first sysop toolkit for Mystic BBS.
 
-MysticTools provides small, script-friendly tools around a Mystic installation without replacing Mystic's own utilities. The current line is intentionally read-only.
+MysticTools provides small, script-friendly tools around a Mystic installation without replacing Mystic's own utilities. Observability and diagnostics are read-only by default. Backup, restore and rollback are explicit recovery operations with guarded execution boundaries.
 
-## Current capabilities
+## Release surface
 
-- Detect a Mystic installation
-- Report installation, runtime and operational status
-- Detect MIS and Mystic node processes through Linux procfs
-- Detect Mystic version from WHATSNEW metadata when available
-- Report ownership, permissions and free disk space
-- Discover and read candidate Mystic logs safely
-- Show detected Mystic sessions with conservative node-number handling
-- Optionally enrich nodes from qualified Mystic-side node snapshots
-- Read a privacy-safe qualified Mystic user snapshot
-- Aggregate user, runtime, FidoNet and door statistics
-- Discover listeners owned by MIS/Mystic and report health
-- Inspect FidoNet paths, semaphores, queue candidates and MIS POLL state
-- Discover Mystic node temp directories and known door dropfiles without reading session contents
-- Export structured JSON and optional Prometheus exposition metrics
-- Architecture-neutral Linux implementation
+MysticTools targets Mystic 1.12 A48+ on Linux while avoiding unnecessary coupling to one alpha build. Python 3.10+ is supported.
 
-## Commands
+Umbrella CLI:
 
 ```text
 mystictools status
 mystictools check
+mystictools doctor
+mystictools backup DESTINATION
+mystictools restore ARCHIVE
 mystictools who
 mystictools nodes
 mystictools users
@@ -37,38 +26,90 @@ mystictools health
 mystictools metrics
 mystictools fidonet
 mystictools doors
+mystictools watch
+mystictools exporter
+```
+
+Standalone entry points:
+
+```text
+mysticstatus   mysticcheck    mysticdoctor
+mysticbackup   mysticrestore  mysticrollback
+mysticwho      mysticnodes    mysticusers
+mysticstats    mysticlog      mysticnet
+mystichealth   mysticmetrics  mysticfidonet
+mysticdoors    mysticwatch    mysticexporter
 ```
 
 Common options:
 
 ```text
 --root PATH       Explicit Mystic installation root
---json            Emit machine-readable JSON
+--json            Emit machine-readable JSON where supported
 ```
 
 Root detection order: `--root`, `MYSTIC_ROOT`, `/mystic`, `/opt/mystic`, `/srv/mystic`.
 
-### Users and statistics
+## What it does
+
+- Detects Mystic installations, MIS and Mystic node processes through Linux procfs.
+- Reports installation, runtime, ownership, permissions, disk space and log state.
+- Discovers listeners owned by MIS/Mystic and provides health/doctor diagnostics.
+- Optionally enriches nodes from qualified Mystic-side snapshots.
+- Reads a privacy-safe qualified user snapshot and aggregates BBS statistics.
+- Inspects FidoNet paths, semaphores, queue candidates and `MIS POLL` state.
+- Discovers node `tempN` directories and known door dropfiles without parsing session contents.
+- Provides human, JSON and optional Prometheus output.
+- Provides guarded backup, restore and rollback with checksums, staging and recovery state.
+- Provides a terminal watch view and an optional HTTP Prometheus exporter.
+- Publishes architecture-neutral Python tooling and amd64/arm64 OCI exporter images.
+
+## Safety model
+
+MysticTools does not reverse-engineer or directly modify Mystic `.dat` databases. Diagnostic commands inspect procfs, documented filesystem conventions and explicit sidecar/provider contracts.
+
+`backup` is offline by default. Live or unverifiable runtime state requires explicit opt-in. `restore` defaults to verification/preflight only; filesystem mutation requires `--execute`, and replacing an existing Mystic root additionally requires `--replace-existing`. `mysticrollback` also defaults to preflight and requires `--execute` before activation.
+
+Restore never uses generic tar extraction. Archive members and the manifest are validated, regular-file hashes are verified, payload is staged beside the target, runtime state is rechecked before commit, and replacement preserves rollback data. Restore transaction journals and recovery trees are retained conservatively rather than silently cleaned up.
+
+## Users and statistics
 
 `users` reads the optional schema-v1 `mystictools-users.json` sidecar. The public schema is deliberately privacy-safe and contains only permanent user ID, handle, security level, calls, uploads, downloads, posts and last-on. It does not expose passwords, e-mail, real name, addresses, phone numbers, IP/host data or notes.
 
+`extras/mystic/export_users.mpy` can generate the sidecar from inside Mystic using the documented `getuserid(ID)` API. Because Mystic does not document a global user-count enumeration API, the exporter requires an explicit maximum user ID. MysticTools validates timestamp freshness, explicit scan bounds, duplicate IDs and field types before qualifying the snapshot.
+
+`stats` aggregates only qualified source data. A numeric user total is emitted only when that field is valid for every user record; partial data is reported as unavailable instead of as a misleading partial sum.
+
+## Runtime and node provider
+
+Mystic can select node numbers internally, so a running `mystic` process without explicit `-N#` is reported as unknown rather than guessed.
+
+A qualified schema-v1 `mystictools-nodes.json` sidecar or fresh per-node fragments under `mystictools-nodes.d/` can enrich explicit node IDs. `MYSTICTOOLS_NODE_SNAPSHOT`, `MYSTICTOOLS_NODE_FRAGMENT_DIR` and `MYSTICTOOLS_NODE_MAX_AGE` control the optional provider. Stale or future-dated fragments are not accepted as fresh qualified data.
+
+MysticTools does not reverse-engineer undocumented Mystic runtime record formats.
+
+## FidoNet diagnostics
+
+`fidonet` is read-only. Provider precedence is environment override, `mystictools-fidonet.ini`, then documented Mystic defaults as an explicitly unqualified fallback. Relative environment and INI paths are anchored to the selected Mystic root.
+
+Malformed/unreadable explicit configuration and filesystem scan errors are surfaced instead of silently becoming empty/healthy data. The command never clears busy flags, semaphores or queue contents.
+
+## Doors/dropfiles
+
+`doors` discovers documented per-node `tempN` directories and known dropfiles such as `DOOR.SYS`, `CHAIN.TXT`, `DORINFO1.DEF` and `door32.sys`. It reports metadata only and does not expose caller/session contents. Filesystem scan degradation is explicitly marked unqualified.
+
+## Logs
+
+`logs` only reads files already identified by MysticTools log discovery. It does not accept an arbitrary filesystem path. The default tail is 50 matching lines per selected file and the hard maximum is 5000.
+
 ```sh
-mystictools users
-mystictools --json users
+mystictools logs mis --tail 100
+mystictools logs --contains error --tail 50
 ```
 
-`extras/mystic/export_users.mpy` can generate the sidecar from inside Mystic using the documented `getuserid(ID)` API. Because Mystic does not document a global user-count enumeration API, the exporter requires an explicit maximum user ID and scans only that range.
+## Prometheus
 
-`stats` is an aggregation layer over existing qualified providers. It combines user totals with runtime/MIS/node/listener state, FidoNet signals and door diagnostics. Unavailable source values remain unavailable rather than being reported as false zero totals.
-
-```sh
-mystictools stats
-mystictools --json stats
-```
-
-### Prometheus
-
-Prometheus support is optional. MysticTools remains fully usable with ordinary human-readable or JSON output.
+Prometheus is optional and first-class. Human-readable and JSON output remain supported independently.
 
 ```sh
 mystictools metrics
@@ -76,50 +117,17 @@ mystictools --json metrics
 mystictools metrics --prometheus
 ```
 
-Public Prometheus metric names use the `mystictools_*` namespace. Current coverage includes runtime/procfs availability, MIS and node processes, network listeners, logs, disk space, health, native node-provider qualification/freshness, privacy-safe user-provider qualification and aggregate user totals, FidoNet signals and door/dropfile diagnostics. Source-dependent values are omitted when their source is unavailable instead of being reported as a false zero.
+Public metric names use the `mystictools_*` namespace. Source-dependent metrics are omitted when their source is unavailable instead of reporting false zeroes. No user ID or handle is used as a Prometheus label. `--json` and `metrics --prometheus` are mutually exclusive.
 
-No user ID or handle is used as a Prometheus label. `--json` and `metrics --prometheus` are mutually exclusive output modes.
+The v0.1.0 metric/API freeze is documented in `docs/PROMETHEUS.md`.
 
-### FidoNet diagnostics
+## Exporter and deployment
 
-`fidonet` is read-only. MysticTools supports explicit FidoNet path configuration through `mystictools-fidonet.ini` or environment variables, with documented Mystic defaults retained as an explicitly unqualified fallback.
+`mysticexporter` / `mystictools exporter` serves `/metrics` and `/healthz`, binding to `127.0.0.1:9108` by default. It is read-only and intentionally has no built-in TLS/auth layer; remote exposure should be deliberate and protected by firewall/reverse proxy.
 
-Provider precedence is environment override, MysticTools INI, then documented Mystic default. The command reports path provenance/qualification, `echomail.in`, `echomail.out` and `netmail.out` semaphores, outbound busy/control files, packet/TIC queue candidates and detected `MIS POLL` processes. It never removes busy flags or modifies queue contents.
+For OCI deployment, host PID visibility is required for host procfs runtime discovery and the Mystic root is mounted read-only. See `docs/DEPLOYMENT.md`.
 
-```sh
-mystictools fidonet
-mystictools --json fidonet
-```
-
-### Doors/dropfiles
-
-`doors` discovers documented per-node `tempN` directories and known dropfiles such as `DOOR.SYS`, `CHAIN.TXT`, `DORINFO1.DEF` and `door32.sys`. It reports metadata only and does not expose caller/session contents.
-
-```sh
-mystictools doors
-mystictools --json doors
-```
-
-### Logs
-
-`logs` only reads files already identified by MysticTools log discovery. It does not accept an arbitrary filesystem path.
-
-```sh
-mystictools logs
-mystictools logs mis --tail 100
-mystictools logs --contains error --tail 50
-mystictools --json logs mis --contains refused
-```
-
-The default tail is 50 matching lines per selected file and the hard maximum is 5000.
-
-### Runtime and nodes
-
-`status`, `who`, `nodes`, `network` and `health` inspect Linux procfs directly and do not require systemd. Mystic can select node numbers internally, so if a running `mystic` process has no explicit `-N#` argument MysticTools reports the node as `?`/`null` instead of guessing.
-
-A qualified schema-v1 `mystictools-nodes.json` sidecar or fresh per-node fragments under `mystictools-nodes.d/` can optionally enrich explicit node IDs with Mystic-side fields. `MYSTICTOOLS_NODE_SNAPSHOT`, `MYSTICTOOLS_NODE_FRAGMENT_DIR` and `MYSTICTOOLS_NODE_MAX_AGE` control the optional provider. MysticTools does not reverse-engineer undocumented Mystic runtime record formats.
-
-### Exit codes
+## Exit codes
 
 ```text
 0  OK
@@ -128,16 +136,16 @@ A qualified schema-v1 `mystictools-nodes.json` sidecar or fresh per-node fragmen
 3  required runtime/probe source unavailable
 ```
 
-MysticTools does not modify Mystic files or configuration.
-
-## Development
-
-Python 3.10+.
+## Development and qualification
 
 ```sh
-python3 -m mystictools status
 python3 -m unittest discover -s tests -v
+python3 -m mystictools --help
 ```
+
+CI covers Python 3.10 and 3.12, OCI build/config validation, wheel/sdist creation, clean-environment installation and smoke tests for every installed console script.
+
+The current release-readiness contract and remaining qualification gates are documented in `docs/RELEASE_CONTRACT.md` and `docs/ROADMAP.md`.
 
 ## License
 
