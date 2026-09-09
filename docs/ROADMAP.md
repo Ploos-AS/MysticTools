@@ -141,9 +141,23 @@ Mystic documents Who's Online, node action status and NodeSpy, but no stable ext
 
 Prometheus support is an optional first-class output layer. New MysticTools commands should expose useful low-cardinality metrics where meaningful, while remaining fully usable without Prometheus. Public metric names use the `mystictools_*` namespace and should be treated as an API once v0.1.0 is released.
 
+### M2.6 — Mystic-side node snapshot exporter
+
+- [x] Add Python 3 `export_node.mpy` helper for execution inside Mystic
+- [x] Use documented Mystic MCI values for node, handle, server, invisibility and availability
+- [x] Write one atomic schema-v1 fragment per node to avoid cross-node write races
+- [x] Add `mystictools-nodes.d` fragment aggregation to the native provider
+- [x] Optional `MYSTICTOOLS_NODE_FRAGMENT_DIR` override
+- [x] Preserve full `mystictools-nodes.json` sidecar as higher-precedence provider
+- [x] Add fragment aggregation and invalid-schema tests
+
+### M2.6 qualification boundary
+
+Mystic Python documents `mci2str()` and the MCI values used by the exporter, but it does not document a global node-enumeration API. The exporter therefore publishes only the current session's node record. Fragment freshness/cleanup after logout is not yet considered a live Who's Online guarantee; procfs remains the authority for whether a Mystic process is currently running. The optional `action` field is supplied explicitly to the exporter rather than inferred from undocumented Mystic state.
+
 ### Later M2 areas
 
-- Mystic-side node snapshot exporter (Python/MPL) qualification
+- fragment freshness/logout cleanup and tighter active-node correlation
 - users and statistics providers
 - doctor/deeper consistency diagnostics
 - backup/restore design and consistency model
