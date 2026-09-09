@@ -171,10 +171,37 @@ Mystic Python documents `mci2str()` and the MCI values used by the exporter, but
 
 Procfs remains the authority for process liveness. A fresh fragment is accepted as qualified native session metadata, but freshness alone does not prove that the corresponding Mystic process is still alive. When procfs exposes explicit node IDs, MysticTools can positively correlate those records. If one or more running Mystic processes have auto-selected/unknown node IDs, unmatched fresh fragments are reported as unresolved rather than guessed active or inactive. M2.7 is intentionally read-only and never deletes stale fragments.
 
+### M2.8 — Users provider
+
+- [x] Add privacy-safe schema-v1 `mystictools-users.json` provider
+- [x] Add `users` CLI command with human and JSON output
+- [x] Add Mystic Python `export_users.mpy` helper using documented `getuserid(ID)`
+- [x] Require an explicit maximum user ID instead of guessing undocumented enumeration bounds
+- [x] Exclude passwords, e-mail, real name, addresses, phone numbers, IP/host data and notes
+- [x] Add user-provider qualification and count metrics
+- [x] Add provider and CLI regression tests
+
+### M2.8 qualification boundary
+
+Mystic documents `getuserid(ID)` for permanent user IDs but does not document a global user-count/enumeration API. The exporter therefore scans only an explicitly configured `1..max_user_id` range. The public sidecar schema intentionally contains a restricted statistics-safe subset of user fields.
+
+### M2.9 — Aggregated BBS statistics
+
+- [x] Add `stats` command with human and JSON output
+- [x] Aggregate qualified user count, calls, uploads, downloads and posts
+- [x] Combine runtime/MIS/node/listener state with FidoNet and door diagnostics
+- [x] Preserve per-source availability/qualification in the statistics model
+- [x] Never coerce unavailable sources into false zero totals
+- [x] Add Prometheus totals for calls, uploads, downloads and posts
+- [x] Add statistics model and CLI regression tests
+
+### M2.9 qualification boundary
+
+`stats` is an aggregation layer, not a new parser. User totals are emitted only from a qualified users provider; runtime and listener values retain their procfs availability semantics; FidoNet and door values come from their existing conservative providers. No user identity is used as a Prometheus label.
+
 ### Later M2 areas
 
 - optional explicit stale-fragment cleanup command/design
-- users and statistics providers
 - doctor/deeper consistency diagnostics
 - backup/restore design and consistency model
 - optional HTTP Prometheus exporter/service packaging
