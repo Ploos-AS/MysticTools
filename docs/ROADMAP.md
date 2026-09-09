@@ -26,23 +26,33 @@ Mystic may select a node number internally when `-N#` is not present. MysticTool
 
 - [x] Permissions and ownership diagnostics
 - [x] Disk-space checks
-- [x] Log-directory and candidate-log discovery
+- [x] Log-directory discovery
 - [x] Stable exit-code contract
-- [x] Operational diagnostics tests
-
-### Exit-code contract
-
-- `0` — command completed successfully / healthy
-- `1` — diagnostic warnings were found
-- `2` — Mystic installation was not found
-- `3` — required runtime/probe source is unavailable
 
 ## M1 — Sysop observability
 
-- logs and nodes
-- network/service status
+### M1.1 — Logs
+
+- [x] `logs` command over discovered log files
+- [x] Filename/stem selector
+- [x] Bounded tail output
+- [x] Case-insensitive substring filtering
+- [x] Human-readable and JSON output
+- [x] Read-only file access and fixture tests
+
+### M1.2 — Nodes
+
+- richer node/session presentation
+- conservative enrichment from qualified sources
+
+### M1.3 — Network/service status
+
+- listener/service discovery
 - monitoring-friendly health output
-- metrics/statistics groundwork
+
+### M1.4 — Metrics groundwork
+
+- structured statistics and exporter-friendly data model
 
 ## Later
 
