@@ -7,6 +7,9 @@ from pathlib import Path
 
 _NODE_RE = re.compile(r"^-N(\d+)$", re.IGNORECASE)
 _VERSION_RE = re.compile(r"Mystic(?:\s+BBS)?[^\n\r]{0,80}?([0-9]+\.[0-9]+)\s+(?:Alpha\s+)?([A-Z]?\d+)", re.IGNORECASE)
+_REDACTED = "[REDACTED]"
+_SECRET_SHORT_FLAGS = ("-U", "-P", "-Y", "-Z")
+_SECRET_LONG_FLAGS = ("--user", "--username", "--password", "--passwd")
 
 
 def _read_cmdline(path: Path) -> list[str]:
@@ -15,6 +18,56 @@ def _read_cmdline(path: Path) -> list[str]:
     except (OSError, PermissionError):
         return []
     return [part.decode("utf-8", errors="replace") for part in raw.split(b"\0") if part]
+
+
+def redact_argv(argv: list[str]) -> list[str]:
+    """Return a display-safe argv while preserving non-secret process context.
+
+    Mystic can accept credentials on its command line. Redaction happens before
+    process records leave runtime discovery so every downstream human/JSON view
+    inherits the same safety boundary.
+    """
+    redacted: list[str] = []
+    redact_next = False
+    for arg in argv:
+        if redact_next:
+            redacted.append(_REDACTED)
+            redact_next = False
+            continue
+
+        upper = arg.upper()
+        matched = False
+        for flag in _SECRET_SHORT_FLAGS:
+            flag_upper = flag.upper()
+            if upper == flag_upper:
+                redacted.append(arg)
+                redact_next = True
+                matched = True
+                break
+            if upper.startswith(flag_upper) and len(arg) > len(flag):
+                redacted.append(arg[: len(flag)] + _REDACTED)
+                matched = True
+                break
+        if matched:
+            continue
+
+        lower = arg.lower()
+        for flag in _SECRET_LONG_FLAGS:
+            if lower == flag:
+                redacted.append(arg)
+                redact_next = True
+                matched = True
+                break
+            prefix = flag + "="
+            if lower.startswith(prefix):
+                redacted.append(arg[: len(prefix)] + _REDACTED)
+                matched = True
+                break
+        if matched:
+            continue
+
+        redacted.append(arg)
+    return redacted
 
 
 def _read_exe(path: Path) -> str | None:
@@ -69,23 +122,23 @@ def discover_processes(proc_root: Path = Path("/proc")) -> dict:
     for entry in proc_root.iterdir():
         if not entry.name.isdigit() or not entry.is_dir():
             continue
-        argv = _read_cmdline(entry / "cmdline")
+        raw_argv = _read_cmdline(entry / "cmdline")
         exe = _read_exe(entry / "exe")
-        if not argv and not exe:
+        if not raw_argv and not exe:
             continue
 
-        command = Path(argv[0]).name.lower() if argv else ""
+        command = Path(raw_argv[0]).name.lower() if raw_argv else ""
         exe_name = Path(exe).name.lower() if exe else ""
         record = {
             "pid": int(entry.name),
-            "argv": argv,
+            "argv": redact_argv(raw_argv),
             "exe": exe,
             **_read_process_start(entry / "stat", boot_time),
         }
         if command == "mis" or exe_name == "mis":
             mis.append(record)
         elif command == "mystic" or exe_name == "mystic":
-            record["node"] = parse_node_number(argv)
+            record["node"] = parse_node_number(raw_argv)
             record["node_source"] = "argv" if record["node"] is not None else None
             nodes.append(record)
 
