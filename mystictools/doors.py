@@ -25,67 +25,84 @@ def _record(path: Path) -> dict:
             "error": str(exc),
         }
     readable = False
+    error = None
     try:
         with path.open("rb") as handle:
             handle.read(1)
         readable = True
-    except OSError:
-        pass
+    except OSError as exc:
+        error = str(exc)
     return {
         "path": str(path),
         "available": True,
         "size": stat.st_size,
         "mtime": stat.st_mtime,
         "readable": readable,
-        "error": None,
+        "error": error,
     }
 
 
-def discover_node_temp_dirs(root: Path) -> list[dict]:
+def discover_node_temp_dirs(root: Path) -> tuple[list[dict], list[str]]:
+    errors: list[str] = []
     try:
         entries = list(root.iterdir())
-    except OSError:
-        return []
+    except OSError as exc:
+        return [], [f"unable to scan {root}: {exc}"]
 
     found = []
     for entry in entries:
-        if not entry.is_dir():
+        try:
+            is_dir = entry.is_dir()
+        except OSError as exc:
+            errors.append(f"unable to inspect {entry}: {exc}")
+            continue
+        if not is_dir:
             continue
         match = _TEMP_RE.match(entry.name)
         if not match:
             continue
         found.append({"node": int(match.group(1)), "path": str(entry)})
     found.sort(key=lambda item: item["node"])
-    return found
+    return found, errors
 
 
-def _dropfiles_for(directory: Path) -> list[dict]:
+def _dropfiles_for(directory: Path) -> tuple[list[dict], list[str]]:
     found = []
+    errors: list[str] = []
     try:
         entries = list(directory.iterdir())
-    except OSError:
-        return found
+    except OSError as exc:
+        return found, [f"unable to scan {directory}: {exc}"]
 
     for entry in entries:
-        if not entry.is_file():
+        try:
+            is_file = entry.is_file()
+        except OSError as exc:
+            errors.append(f"unable to inspect {entry}: {exc}")
+            continue
+        if not is_file:
             continue
         kind = _DROPFILES.get(entry.name)
         if kind is None:
             continue
-        found.append({"name": entry.name, "kind": kind, **_record(entry)})
+        record = {"name": entry.name, "kind": kind, **_record(entry)}
+        found.append(record)
+        if record.get("error"):
+            errors.append(f"unable to read {entry}: {record['error']}")
     found.sort(key=lambda item: item["name"].lower())
-    return found
+    return found, errors
 
 
 def doors_snapshot(root: Path) -> dict:
-    node_dirs = discover_node_temp_dirs(root)
+    node_dirs, scan_errors = discover_node_temp_dirs(root)
     nodes = []
     total_dropfiles = 0
     unreadable = 0
 
     for item in node_dirs:
         directory = Path(item["path"])
-        dropfiles = _dropfiles_for(directory)
+        dropfiles, errors = _dropfiles_for(directory)
+        scan_errors.extend(errors)
         total_dropfiles += len(dropfiles)
         unreadable += sum(1 for entry in dropfiles if not entry["readable"])
         nodes.append(
@@ -100,12 +117,13 @@ def doors_snapshot(root: Path) -> dict:
 
     return {
         "source": "filesystem-node-temp",
-        "qualified": True,
+        "qualified": not scan_errors,
         "read_only": True,
         "nodes": nodes,
         "node_temp_count": len(nodes),
         "dropfile_count": total_dropfiles,
         "unreadable_dropfile_count": unreadable,
+        "scan_errors": scan_errors,
         "supported_formats": sorted(set(_DROPFILES.values())),
         "notes": [
             "Mystic creates door drop files in per-node tempN directories.",
