@@ -84,9 +84,18 @@ Mystic may select a node number internally when `-N#` is not present. MysticTool
 
 ### M2.2 — Qualified FidoNet configuration/provider
 
-- discover configured Mystic system/EchoMail paths from a qualified source
-- expose configured routing/poll context without leaking credentials
-- correlate MIS POLL/log state with filesystem signals
+- [x] Provider abstraction with explicit per-path provenance
+- [x] Optional `mystictools-fidonet.ini` configuration
+- [x] Environment overrides with highest precedence
+- [x] Preserve Mystic documented defaults as explicit unqualified fallback
+- [x] Mark configuration globally qualified only when all required paths are explicit
+- [x] Detect active `MIS POLL` processes through procfs
+- [x] Correlate qualified paths, poll state, semaphores and queue signals in `fidonet`
+- [x] Provider and poll-context tests
+
+### M2.2 qualification boundary
+
+Mystic's System Paths are configurable, but MysticTools does not reverse-engineer undocumented/proprietary configuration storage. A path is considered qualified only when it is supplied explicitly to MysticTools through its INI provider or environment. Defaults remain visible but are labelled unqualified.
 
 ### M2.3 — Doors/dropfiles
 
