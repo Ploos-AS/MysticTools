@@ -12,11 +12,15 @@
 
 ## M0.1 — Runtime discovery
 
-- Detect MIS process state without assuming systemd
-- Detect Mystic version safely
-- Discover a qualified node-status source
-- Implement useful `who` output
-- Add fixture-driven tests
+- [x] Detect MIS process state without assuming systemd (Linux procfs)
+- [x] Detect Mystic version safely from WHATSNEW metadata when available
+- [x] Discover Mystic node processes without parsing proprietary data files
+- [x] Implement useful `who` output with explicit unknown-node semantics
+- [x] Add fixture-driven runtime tests
+
+### M0.1 qualification boundary
+
+Mystic may select a node number internally when `-N#` is not present. MysticTools reports such node IDs as unknown rather than guessing. A richer Mystic-native node-status source can be added later after its format/interface is qualified.
 
 ## M0.2 — Operational checks
 
