@@ -14,12 +14,16 @@ from .diagnostics import (
     operational_checks,
 )
 from .logs import DEFAULT_TAIL, MAX_TAIL, log_snapshot
+from .metrics import metrics_snapshot, render_prometheus
 from .network import health_snapshot, network_snapshot
 from .nodes import nodes_snapshot
 from .runtime import runtime_snapshot
 
 
-def emit(payload: dict, as_json: bool) -> None:
+def emit(payload: dict, as_json: bool, prometheus: bool = False) -> None:
+    if prometheus:
+        print(render_prometheus(payload["result"]), end="")
+        return
     if as_json:
         print(json.dumps(payload, indent=2, sort_keys=True))
         return
@@ -109,6 +113,13 @@ def emit(payload: dict, as_json: bool) -> None:
         print(f"status: {result['status'].upper()}")
         for item in result["checks"]:
             print(f"{item['status'].upper():>7} {item['name']}: {item['detail']}")
+    elif command == "metrics":
+        print(f"Mystic root: {payload['root']}")
+        result = payload["result"]
+        print(f"schema: {result['schema_version']}")
+        print(f"health: {result['health']}")
+        for name, value in result["values"].items():
+            print(f"{name}={value if value is not None else 'unavailable'}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -123,6 +134,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("nodes", help="show detailed Mystic node/session process information")
     sub.add_parser("network", help="show listeners owned by detected MIS/Mystic processes")
     sub.add_parser("health", help="show monitoring-friendly Mystic health summary")
+    metrics = sub.add_parser("metrics", help="show exporter-friendly Mystic metrics")
+    metrics.add_argument("--prometheus", action="store_true", help="emit Prometheus exposition text")
     logs = sub.add_parser("logs", help="read discovered Mystic log files")
     logs.add_argument("name", nargs="?", help="log filename or stem selector, for example mis")
     logs.add_argument("--tail", type=int, default=DEFAULT_TAIL, help=f"show last N matching lines (0-{MAX_TAIL})")
@@ -141,6 +154,7 @@ def main(argv: list[str] | None = None) -> int:
             print(payload["error"], file=sys.stderr)
         return EXIT_NOT_FOUND
 
+    prometheus = False
     if args.command == "status":
         runtime = runtime_snapshot(root)
         operations = operational_checks(root)
@@ -199,6 +213,11 @@ def main(argv: list[str] | None = None) -> int:
             exit_code = EXIT_WARNING
         else:
             exit_code = EXIT_UNAVAILABLE
+    elif args.command == "metrics":
+        result = metrics_snapshot(root)
+        payload = {"command": "metrics", "ok": result["values"]["mystictools_up"] == 1, "root": str(root), "result": result}
+        prometheus = args.prometheus
+        exit_code = EXIT_OK if payload["ok"] else EXIT_UNAVAILABLE
     else:
         try:
             result = log_snapshot(root, name=args.name, tail=args.tail, contains=args.contains)
@@ -211,5 +230,5 @@ def main(argv: list[str] | None = None) -> int:
         payload = {"command": "logs", "ok": result["ok"], "root": str(root), "result": result}
         exit_code = EXIT_OK if result["ok"] else EXIT_UNAVAILABLE
 
-    emit(payload, args.json)
+    emit(payload, args.json, prometheus=prometheus)
     return exit_code
