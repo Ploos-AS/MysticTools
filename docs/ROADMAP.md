@@ -1,314 +1,227 @@
-# Roadmap
+# MysticTools roadmap
 
-## M0 — Foundation
+MysticTools is a Linux-first sysop, diagnostics, observability and guarded-recovery suite for Mystic BBS. The planned v0.1.0 tool surface is implemented; current work is release qualification and contract freeze rather than adding more tools.
 
-- [x] Linux-first Python CLI
+## Completed foundation and observability
+
+### M0 — Foundation
+
+- [x] Python 3.10+ Linux-first CLI
 - [x] MIT / Ploos AS
-- [x] Mystic root auto-detection
-- [x] Explicit `--root` and `MYSTIC_ROOT` override
-- [x] Read-only `status`, `check`, `who` command surface
-- [x] Human-readable and JSON output
-- [x] Unit tests for detection/check primitives
-
-## M0.1 — Runtime discovery
+- [x] conservative Mystic root detection plus `--root` / `MYSTIC_ROOT`
+- [x] human and JSON output
+- [x] stable exit-code contract
+
+### M0.1 — Runtime discovery
+
+- [x] Linux procfs MIS/Mystic process discovery
+- [x] conservative Mystic version detection
+- [x] explicit `-N#` node detection
+- [x] unknown node preserved when Mystic auto-selects internally
+- [x] credential-redacted downstream argv
+
+### M0.2 — Operational checks
+
+- [x] ownership/permission diagnostics
+- [x] disk-space checks
+- [x] log discovery
+
+### M1 — Sysop observability
+
+- [x] M1.1 logs: bounded tail, selector/filter, human/JSON
+- [x] M1.2 nodes: runtime/process detail
+- [x] M1.3 network: TCP/TCP6 listener mapping and health
+- [x] M1.4 metrics groundwork: versioned metrics + optional Prometheus
 
-- [x] Detect MIS process state without assuming systemd (Linux procfs)
-- [x] Detect Mystic version safely from WHATSNEW metadata when available
-- [x] Discover Mystic node processes without parsing proprietary data files
-- [x] Implement useful `who` output with explicit unknown-node semantics
-- [x] Add fixture-driven runtime tests
-
-### M0.1 qualification boundary
-
-Mystic may select a node number internally when `-N#` is not present. MysticTools reports such node IDs as unknown rather than guessing. A richer Mystic-native node-status source can be added later after its format/interface is qualified.
-
-## M0.2 — Operational checks
+## Completed Mystic-aware providers
+
+### M2.1–M2.3 — FidoNet and doors
+
+- [x] FidoNet filesystem/semaphore/queue diagnostics
+- [x] explicit FidoNet INI/environment provider with provenance
+- [x] relative explicit paths anchored to Mystic root
+- [x] malformed INI surfaced as unqualified configuration
+- [x] filesystem scan degradation surfaced explicitly
+- [x] MIS POLL detection
+- [x] `tempN` and known door-dropfile metadata discovery
+- [x] no door session-content parsing
+
+### M2.4–M2.7 — Native node provider
+
+- [x] schema-v1 `mystictools-nodes.json`
+- [x] per-node `mystictools-nodes.d/node-N.json` fragments
+- [x] Mystic-side `export_node.mpy`
+- [x] freshness policy and stale/future timestamp rejection
+- [x] procfs/native correlation without guessed liveness
+- [x] provider qualification Prometheus metrics
 
-- [x] Permissions and ownership diagnostics
-- [x] Disk-space checks
-- [x] Log-directory discovery
-- [x] Stable exit-code contract
+### M2.8–M2.9 — Users and statistics
 
-## M1 — Sysop observability
+- [x] privacy-safe schema-v1 `mystictools-users.json`
+- [x] Mystic-side `export_users.mpy` using documented `getuserid(ID)`
+- [x] explicit maximum user-ID scan bound
+- [x] freshness, type, duplicate-ID and completeness validation
+- [x] aggregate stats only from qualified complete values
+- [x] no false partial totals
 
-### M1.1 — Logs
+### M2.10 — Doctor
 
-- [x] `logs` command over discovered log files
-- [x] Filename/stem selector
-- [x] Bounded tail output
-- [x] Case-insensitive substring filtering
-- [x] Human-readable and JSON output
-- [x] Read-only file access and fixture tests
+- [x] cross-source findings
+- [x] `ok`, `warning`, `unavailable`, `critical`
+- [x] severity order with `critical` highest
+- [x] provider/config/scan degradation visible in doctor
+- [x] snapshot reuse to avoid inconsistent duplicate probes
 
-### M1.2 — Nodes
+## Completed backup and recovery
 
-- [x] Dedicated `nodes` command
-- [x] PID and explicit/unknown node number
-- [x] Process start time and runtime from procfs when available
-- [x] Process arguments and executable path
-- [x] Conservative enrichment only; no guessed usernames or remote addresses
-- [x] Human-readable and JSON output
-- [x] Node model tests
-
-### M1.3 — Network/service status
+### M3.1 — Backup
 
-- [x] Discover TCP/TCP6 listeners through procfs
-- [x] Map socket inodes to detected MIS/Mystic PIDs
-- [x] `network` command with human-readable and JSON output
-- [x] `health` command with monitoring-friendly status/checks
-- [x] Preserve stable exit-code contract
-- [x] Network fixture tests
+- [x] offline by default
+- [x] explicit live/unverified overrides
+- [x] SHA-256 inventory and manifest
+- [x] explicit vetted archive payload only
+- [x] reject special files and external symlinks
+- [x] unique temporary archive, mode 0600
+- [x] self-verify before final publication
 
-### M1.4 — Metrics groundwork
+### M3.2–M3.3 — Restore verification and execution
 
-- [x] Versioned structured metrics snapshot
-- [x] Runtime, listener, log, disk and health metrics
-- [x] `metrics` CLI command
-- [x] JSON output via global `--json`
-- [x] Prometheus exposition via `metrics --prometheus`
-- [x] Omit unavailable numeric metrics instead of inventing values
-- [x] Metrics model and renderer tests
+- [x] preflight-only default
+- [x] explicit `--execute`
+- [x] explicit `--replace-existing`
+- [x] strict archive/member/manifest contract
+- [x] no generic tar extraction
+- [x] staged extraction and checksum re-verification
+- [x] runtime recheck before swap
+- [x] rollback tree preservation
 
-## M2 — Deeper Mystic-aware diagnostics
+### M3.4 — Rollback lifecycle
 
-### M2.1 — FidoNet filesystem diagnostics
+- [x] `mysticrollback`
+- [x] stopped-runtime preflight
+- [x] sibling/root ownership contract
+- [x] collision-free failed-tree preservation
+- [x] manual-only cleanup policy
 
-- [x] Dedicated `fidonet` command
-- [x] Detect default EchoMail inbound/outbound/semaphore paths conservatively
-- [x] Detect `echomail.in`, `echomail.out` and `netmail.out` semaphores
-- [x] Detect outbound busy/control files without mutating them
-- [x] Count inbound packet/TIC and outbound queue candidates
-- [x] Human-readable and JSON output
-- [x] Explicitly mark default-path discovery as unqualified configuration
-- [x] Fixture tests
+### M3.5 / M5.4–M5.5 — Recovery observability and transaction hardening
 
-### M2.2 — Qualified FidoNet configuration/provider
+- [x] schema-v1 recovery state outside Mystic root
+- [x] backup/restore/rollback result metrics
+- [x] restore transaction journal
+- [x] archive identity checks through verify/stage/commit
+- [x] journal states `prepared`, `old-moved`, `new-installed`
+- [x] journal-aware rollback recovery
+- [x] exact journal-associated rollback requirement
 
-- [x] Provider abstraction with explicit per-path provenance
-- [x] Optional `mystictools-fidonet.ini` configuration
-- [x] Environment overrides with highest precedence
-- [x] Preserve Mystic documented defaults as explicit unqualified fallback
-- [x] Mark configuration globally qualified only when all required paths are explicit
-- [x] Detect active `MIS POLL` processes through procfs
-- [x] Correlate qualified paths, poll state, semaphores and queue signals in `fidonet`
-- [x] Provider and poll-context tests
+## Completed live monitoring and deployment
 
-### M2.2 qualification boundary
+### M4.1 — Terminal watch
 
-Mystic's System Paths are configurable, but MysticTools does not reverse-engineer undocumented/proprietary configuration storage. A path is considered qualified only when it is supplied explicitly to MysticTools through its INI provider or environment. Defaults remain visible but are labelled unqualified.
+- [x] `mysticwatch` / `mystictools watch`
+- [x] bounded refresh interval, one-shot/count modes and JSON
+- [x] privacy-safe node/action display
+- [x] single-observation snapshot reuse
 
-### M2.3 — Doors/dropfiles
+### M4.2 — HTTP Prometheus exporter
 
-- [x] Dedicated `doors` command
-- [x] Discover per-node `tempN` directories
-- [x] Detect DOOR.SYS, CHAIN.TXT, DORINFO1.DEF and door32.sys
-- [x] Report format, size, timestamp and readability without parsing session contents
-- [x] Preserve case-sensitive Mystic dropfile conventions
-- [x] Human-readable and JSON output
-- [x] Fixture tests
+- [x] `mysticexporter` / `mystictools exporter`
+- [x] loopback default `127.0.0.1:9108`
+- [x] `/metrics` and `/healthz`
+- [x] GET/HEAD only
+- [x] no access log or mutating endpoints
 
-### M2.3 qualification boundary
+### M4.3–M4.5 — Deployment and OCI
 
-Mystic documents that door drop files are created in each node's `tempN` directory. MysticTools treats that filesystem convention and the documented dropfile names as qualified, but M2.3 intentionally does not parse dropfile contents because those files can contain user/session details.
+- [x] hardened systemd example
+- [x] Prometheus scrape example
+- [x] Docker/Compose exporter deployment
+- [x] amd64/arm64 OCI publication workflow
+- [x] GHCR publication and optional Docker Hub publication
+- [x] published-image smoke test
+- [x] host PID visibility documented for containerized procfs discovery
 
-### M2.4 — Native node-data provider
+### M4.6 — Complete standalone suite
 
-- [x] Define versioned `mystictools-nodes.json` sidecar contract
-- [x] Optional `MYSTICTOOLS_NODE_SNAPSHOT` path override
-- [x] Validate schema before treating native data as qualified
-- [x] Merge qualified native node records with procfs process records by explicit node number
-- [x] Preserve unmatched native records without inventing PIDs
-- [x] Expose user/action/server/invisible/message-availability only from qualified provider data
-- [x] Provider and merge tests
+- [x] standalone names for the planned suite
+- [x] umbrella commands for the planned suite
+- [x] standalone dispatcher qualified against the real argparse path
 
-### M2.4 qualification boundary
+## Completed pre-release hardening
 
-Mystic documents Who's Online, node action status and NodeSpy, but no stable external node-status file/API is documented for third-party readers. MysticTools therefore does not reverse-engineer Mystic runtime records. The sidecar contract is qualified only when a Mystic-side exporter explicitly produces schema version 1 data. Procfs remains the independent baseline.
+### M5.1 — Credential-safe runtime argv
 
-### M2.5 — Prometheus contract and cross-tool coverage
+- [x] redact Mystic short credential flags and common long forms
+- [x] preserve raw argv only for internal classification/node parsing
 
-- [x] Normalize public metric names under `mystictools_*`
-- [x] Replace ambiguous `mystictools_up` with explicit source-availability metrics
-- [x] Omit source-dependent values when their probe is unavailable rather than emitting false zeroes
-- [x] Add native node-provider qualification metrics
-- [x] Add FidoNet queue, busy, inbound and MIS POLL metrics
-- [x] Add door/temp/dropfile metrics
-- [x] Keep Prometheus optional alongside human-readable and JSON output
-- [x] Reject simultaneous JSON and Prometheus output
-- [x] Add CLI regression tests for node and metrics contracts
+### M5.2–M5.5 — Backup/restore/rollback hardening
 
-### M2.5 observability policy
+- [x] hostile archive/member tests
+- [x] exact manifest payload enforcement
+- [x] safe symlink contract
+- [x] streaming hashes
+- [x] backup self-verification
+- [x] restore archive TOCTOU/digest checks
+- [x] transaction journal and journal-aware recovery
 
-Prometheus support is an optional first-class output layer. New MysticTools commands should expose useful low-cardinality metrics where meaningful, while remaining fully usable without Prometheus. Public metric names use the `mystictools_*` namespace and should be treated as an API once v0.1.0 is released.
+### M5.6 — Provider/data-quality hardening
 
-### M2.6 — Mystic-side node snapshot exporter
+- [x] future/stale node timestamp handling
+- [x] duplicate/type validation
+- [x] user snapshot freshness and explicit scan completeness
+- [x] no partial user aggregate totals
 
-- [x] Add Python 3 `export_node.mpy` helper for execution inside Mystic
-- [x] Use documented Mystic MCI values for node, handle, server, invisibility and availability
-- [x] Write one atomic schema-v1 fragment per node to avoid cross-node write races
-- [x] Add `mystictools-nodes.d` fragment aggregation to the native provider
-- [x] Optional `MYSTICTOOLS_NODE_FRAGMENT_DIR` override
-- [x] Preserve full `mystictools-nodes.json` sidecar as higher-precedence provider
-- [x] Add fragment aggregation and invalid-schema tests
+### M5.7 — Doctor/health semantics
 
-### M2.6 qualification boundary
+- [x] `critical > unavailable`
+- [x] shared snapshots for doctor/metrics
+- [x] watch avoids duplicate metrics probe round
 
-Mystic Python documents `mci2str()` and the MCI values used by the exporter, but it does not document a global node-enumeration API. The exporter therefore publishes only the current session's node record. The optional `action` field is supplied explicitly to the exporter rather than inferred from undocumented Mystic state.
+### M5.8 — FidoNet/doors hardening
 
-### M2.7 — Fragment freshness and active-node correlation
+- [x] root-relative environment paths
+- [x] malformed INI surfaced explicitly
+- [x] per-entry filesystem scan errors surfaced
+- [x] doctor sees scan/config degradation
 
-- [x] Require `generated_at` on per-node fragments
-- [x] Reject stale fragments from native enrichment
-- [x] Default freshness window to 300 seconds
-- [x] Optional `MYSTICTOOLS_NODE_MAX_AGE` override
-- [x] Correlate native records with explicit procfs node IDs when available
-- [x] Mark unmatched native records inactive only when all active process nodes are known
-- [x] Preserve unresolved status when Mystic auto-selects node IDs
-- [x] Add freshness and correlation tests
-- [x] Add low-cardinality Prometheus metrics for fragment count/fresh/stale/max-age
+### M5.9 — CLI/package qualification
 
-### M2.7 qualification boundary
+- [x] correct standalone subcommand argument placement
+- [x] real-parser tests for all dispatcher-based standalone tools
+- [x] wheel + sdist build in CI
+- [x] clean wheel install smoke
+- [x] all installed console scripts `--help` smoke
+- [x] clean sdist install smoke
 
-Procfs remains the authority for process liveness. A fresh fragment is accepted as qualified native session metadata, but freshness alone does not prove that the corresponding Mystic process is still alive. When procfs exposes explicit node IDs, MysticTools can positively correlate those records. If one or more running Mystic processes have auto-selected/unknown node IDs, unmatched fresh fragments are reported as unresolved rather than guessed active or inactive. M2.7 is intentionally read-only and never deletes stale fragments.
+### M5.10 — Release-contract/documentation freeze
 
-### M2.8 — Users provider
+- [x] refresh release-facing README
+- [x] freeze intended v0.1.0 Prometheus namespace/semantics
+- [x] document v0.1.0 CLI/recovery/CI contract
+- [x] classify remaining work as qualification rather than feature expansion
 
-- [x] Add privacy-safe schema-v1 `mystictools-users.json` provider
-- [x] Add `users` CLI command with human and JSON output
-- [x] Add Mystic Python `export_users.mpy` helper using documented `getuserid(ID)`
-- [x] Require an explicit maximum user ID instead of guessing undocumented enumeration bounds
-- [x] Exclude passwords, e-mail, real name, addresses, phone numbers, IP/host data and notes
-- [x] Add user-provider qualification and count metrics
-- [x] Add provider and CLI regression tests
+## v0.1.0 qualification gates — NEXT
 
-### M2.8 qualification boundary
+The intended tool surface is complete. Do not add new tools before v0.1.0 unless qualification finds a real missing requirement.
 
-Mystic documents `getuserid(ID)` for permanent user IDs but does not document a global user-count/enumeration API. The exporter therefore scans only an explicitly configured `1..max_user_id` range. The public sidecar schema intentionally contains a restricted statistics-safe subset of user fields.
+- [ ] Real Mystic 1.12 A48 Linux qualification in a controlled installation/UBB environment
+- [ ] Runtime-qualify `extras/mystic/export_node.mpy`, including output-location assumptions
+- [ ] Runtime-qualify `extras/mystic/export_users.mpy` and exact field aliases returned by `getuserid(ID)`
+- [ ] Qualify FidoNet diagnostics against explicit real Mystic paths and representative state
+- [ ] Qualify door discovery against real `tempN` directories
+- [ ] End-to-end disposable offline backup -> verify -> restore -> rollback qualification
+- [ ] Final release-candidate CI + published OCI smoke
+- [ ] Version bump `0.1.0.dev0` -> `0.1.0`
+- [ ] Release notes, tag and publication
 
-### M2.9 — Aggregated BBS statistics
+See `RELEASE_CONTRACT.md` for the detailed release gate and `PROMETHEUS.md` for the metric compatibility contract.
 
-- [x] Add `stats` command with human and JSON output
-- [x] Aggregate qualified user count, calls, uploads, downloads and posts
-- [x] Combine runtime/MIS/node/listener state with FidoNet and door diagnostics
-- [x] Preserve per-source availability/qualification in the statistics model
-- [x] Never coerce unavailable sources into false zero totals
-- [x] Add Prometheus totals for calls, uploads, downloads and posts
-- [x] Add statistics model and CLI regression tests
+## Post-v0.1.0 candidates
 
-### M2.9 qualification boundary
+- optional stale-fragment cleanup command/design
+- optional recovery-state history beyond last result per operation
+- optional explicit recovery-tree cleanup tooling
+- optional deeper Mystic-side menu/Python integration
+- optional web UI
+- additional low-cardinality metrics where justified
 
-`stats` is an aggregation layer, not a new parser. User totals are emitted only from a qualified users provider; runtime and listener values retain their procfs availability semantics; FidoNet and door values come from their existing conservative providers. No user identity is used as a Prometheus label.
-
-### M2.10 — Doctor diagnostics
-
-- [x] Add `doctor` command with human and JSON output
-- [x] Correlate runtime/MIS, network, operational checks, node provider, users provider, FidoNet and doors
-- [x] Use explicit `ok`, `warning`, `critical` and `unavailable` finding states
-- [x] Preserve source uncertainty instead of converting missing providers into healthy values
-- [x] Warn on stale node fragments, unqualified providers/configuration, busy FidoNet state and unreadable dropfiles
-- [x] Add low-cardinality Prometheus doctor status/count metrics
-- [x] Add doctor model tests
-
-### M2.10 qualification boundary
-
-`doctor` is a read-only correlation and diagnosis layer over already-qualified MysticTools probes and providers. It does not parse new Mystic formats, repair files, clear semaphores/busy state, delete stale fragments, or alter configuration. Findings are recommendations/status only; mutating repair operations remain outside this milestone.
-
-## M3 — Backup and recovery
-
-### M3.1 — Safe backup
-
-- [x] Add `backup` command with human and JSON output
-- [x] Default to offline-only consistency and refuse active MIS/Mystic processes
-- [x] Require explicit opt-in for best-effort live backup
-- [x] Refuse destinations inside the Mystic root or existing destinations
-- [x] Inventory files with SHA-256, size, mode and mtime
-- [x] Preserve symlink metadata without following it during inventory
-- [x] Embed schema-v1 `mystictools-backup-manifest.json`
-- [x] Atomically finalize the `.tar.gz` archive
-- [x] Report full-archive SHA-256
-- [x] Add backup engine tests and consistency documentation
-
-### M3.1 qualification boundary
-
-MysticTools backs up the installation tree as opaque files. It does not interpret or repair Mystic databases. Offline backup is the only consistency mode treated as application-consistent by default; `--allow-live` explicitly produces a best-effort snapshot that may contain cross-file races.
-
-### M3.2 — Restore verification and preflight
-
-- [x] Add non-destructive `restore` command
-- [x] Require and validate schema-v1 backup manifest
-- [x] Reject absolute paths and `..` traversal in archive members and manifest paths
-- [x] Reject unsafe symlink/hardlink targets
-- [x] Reject duplicate archive/member and manifest paths
-- [x] Verify regular-file sizes and SHA-256 checksums before any restore write
-- [x] Validate manifest file count
-- [x] Warn when backup consistency is not `offline`
-- [x] Require procfs runtime verification and stopped MIS/Mystic processes
-- [x] Keep M3.2 strictly verify/preflight-only with no extraction
-- [x] Add checksum, traversal and running-BBS tests
-
-### M3.2 qualification boundary
-
-`restore` in M3.2 performs no filesystem mutation. Passing preflight proves only that the archive structure, manifest, recorded regular-file payloads and current stopped-runtime requirement passed the implemented checks. Actual restoration remains a separate, explicit milestone and must reuse these checks before writing to the target root.
-
-### M3.3 — Guarded restore execution
-
-- [x] Keep restore preflight as the default non-mutating behavior
-- [x] Require explicit `restore --execute` before any filesystem mutation
-- [x] Require explicit `--replace-existing` before replacing an existing Mystic root
-- [x] Extract to a staging directory beside the target root
-- [x] Avoid generic tar extraction and materialize only validated member types
-- [x] Re-verify staged regular-file SHA-256 values before target swap
-- [x] Preserve recorded regular-file modes and mtimes
-- [x] Atomically rename an existing target to a rollback path before commit
-- [x] Atomically move the staged tree into the target path
-- [x] Attempt automatic rollback if the final stage-to-target rename fails
-- [x] Keep the previous installation as explicit rollback data after successful replacement
-- [x] Add missing-target, explicit-replace and rollback-preservation tests
-
-### M3.3 qualification boundary
-
-M3.3 is intentionally explicit and conservative. Verification and stopped-runtime preflight still run before staging. Existing installations are never replaced without `--replace-existing`, and a successful replacement preserves the old tree rather than deleting it. The implementation uses same-parent staging and rename semantics for the final swap, but cannot make multiple filesystem renames into one indivisible transaction; the retained rollback tree is therefore part of the recovery contract.
-
-### M3.4 — Guarded rollback lifecycle
-
-- [x] Add rollback preflight with mandatory stopped-runtime verification
-- [x] Accept only sibling `.<root>.rollback-*` trees associated with the selected Mystic root
-- [x] Add explicit `mysticrollback` entry point
-- [x] Keep rollback preflight non-mutating unless `--execute` is supplied
-- [x] Preserve the current target as `.<root>.failed-*` before activating rollback data
-- [x] Attempt automatic recovery of the current target if rollback activation fails
-- [x] Add `mysticrollback --list` recovery-tree discovery
-- [x] Define recovery-tree cleanup as manual-only
-- [x] Never automatically delete rollback or failed trees
-- [x] Add rollback engine and CLI tests
-
-### M3.4 qualification boundary
-
-Rollback is deliberately not an automatic cleanup mechanism. It accepts only the naming/location contract created by guarded restore, requires Mystic/MIS to be verifiably stopped, and preserves the tree being replaced as separate failed-state evidence. Recovery trees remain until the sysop explicitly removes them after independent validation of the active installation; MysticTools performs no age-based or count-based deletion in M3.4.
-
-### M3.5 — Recovery state and Prometheus observability
-
-- [x] Add schema-v1 recovery state stored outside the replaceable Mystic root
-- [x] Record backup and executed restore outcomes through the main CLI wrapper
-- [x] Record executed rollback outcomes through `mysticrollback`
-- [x] Make state recording best-effort so observability cannot break recovery operations
-- [x] Allow `MYSTICTOOLS_RECOVERY_STATE` path override
-- [x] Expose state availability and qualification metrics
-- [x] Expose last backup/restore/rollback success and age metrics without labels
-- [x] Expose rollback, failed and total preserved recovery-tree counts
-- [x] Bump the pre-release metrics schema to version 3
-- [x] Add recovery-state and metrics regression tests
-
-### M3.5 qualification boundary
-
-Recovery state is operational metadata, not an authoritative transaction log. It records the exit result of recovery commands and may be absent if the process is terminated before the best-effort state write or if the state path is not writable. Prometheus reads this state and sibling recovery-tree counts only; metrics never trigger backup, restore, rollback or cleanup. Missing event history is represented as unavailable metrics rather than false success or failure values.
-
-### Later M3 areas
-
-- optional explicit recovery-state/history retention beyond last-result-per-operation
-
-### Later areas
-
-- optional explicit stale-fragment cleanup command/design
-- optional HTTP Prometheus exporter/service packaging
-- optional Mystic-side Python/menu integration
+Not planned: reverse-engineering proprietary Mystic databases, automatic FidoNet repair, automatic door-state repair, or high-cardinality user/node Prometheus labels.
