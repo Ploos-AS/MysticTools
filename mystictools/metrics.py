@@ -15,7 +15,7 @@ from .users import users_snapshot
 SCHEMA_VERSION = 3
 
 _HEALTH_CODES = {"ok": 0, "warning": 1, "unknown": 2, "critical": 3}
-_DOCTOR_CODES = {"ok": 0, "warning": 1, "critical": 2, "unavailable": 3}
+_DOCTOR_CODES = {"ok": 0, "warning": 1, "unavailable": 2, "critical": 3}
 
 _HELP_TEXT = {
     "mystictools_runtime_available": "Whether Linux procfs runtime discovery is available.",
@@ -28,7 +28,7 @@ _HELP_TEXT = {
     "mystictools_disk_free_percent": "Free filesystem percentage for the Mystic root.",
     "mystictools_operational_warnings": "Number of current operational warnings.",
     "mystictools_health_status": "Health status code: 0 ok, 1 warning, 2 unknown, 3 critical.",
-    "mystictools_doctor_status": "Doctor status code: 0 ok, 1 warning, 2 critical, 3 unavailable.",
+    "mystictools_doctor_status": "Doctor status code: 0 ok, 1 warning, 2 unavailable, 3 critical.",
     "mystictools_doctor_warnings": "Number of doctor findings with warning status.",
     "mystictools_doctor_critical": "Number of doctor findings with critical status.",
     "mystictools_doctor_unavailable": "Number of doctor findings with unavailable status.",
@@ -70,9 +70,11 @@ _HELP_TEXT = {
 def _sum_user_field(users: dict, field: str) -> int | None:
     if not users["qualified"]:
         return None
-    values = [item.get(field) for item in users["users"]]
-    numeric = [value for value in values if isinstance(value, int) and not isinstance(value, bool) and value >= 0]
-    return sum(numeric) if numeric else None
+    records = users["users"]
+    values = [item.get(field) for item in records]
+    if not records or any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in values):
+        return None
+    return sum(values)
 
 
 def _event_success(state: dict, operation: str) -> int | None:
@@ -91,11 +93,20 @@ def metrics_snapshot(root: Path) -> dict:
     network = network_snapshot(processes)
     operations = operational_checks(root)
     health = health_snapshot(runtime, network)
-    doctor = doctor_snapshot(root)
     provider = load_node_snapshot(root)
     users = users_snapshot(root)
     fidonet = fidonet_snapshot(root, processes=processes)
     doors = doors_snapshot(root)
+    doctor = doctor_snapshot(
+        root,
+        runtime=runtime,
+        network=network,
+        operations=operations,
+        node_provider=provider,
+        users=users,
+        fidonet=fidonet,
+        doors=doors,
+    )
     recovery_state = read_state(root)
     recovery_trees = recovery_tree_counts(root)
 
@@ -111,7 +122,7 @@ def metrics_snapshot(root: Path) -> dict:
         "mystictools_disk_free_percent": operations["disk"]["free_percent"] if operations["disk"]["available"] else None,
         "mystictools_operational_warnings": operations["warning_count"],
         "mystictools_health_status": _HEALTH_CODES.get(health["status"], 2),
-        "mystictools_doctor_status": _DOCTOR_CODES.get(doctor["status"], 3),
+        "mystictools_doctor_status": _DOCTOR_CODES.get(doctor["status"], 2),
         "mystictools_doctor_warnings": doctor["counts"]["warning"],
         "mystictools_doctor_critical": doctor["counts"]["critical"],
         "mystictools_doctor_unavailable": doctor["counts"]["unavailable"],
