@@ -7,17 +7,17 @@ MysticTools provides small, script-friendly tools around a Mystic installation w
 ## Current capabilities
 
 - Detect a Mystic installation
-- Report basic installation status
+- Report installation, runtime and operational status
 - Detect MIS and Mystic node processes through Linux procfs
 - Detect Mystic version from WHATSNEW metadata when available
-- Perform safe installation and operational checks
 - Report ownership, permissions and free disk space
 - Discover and read candidate Mystic logs safely
 - Show detected Mystic sessions with conservative node-number handling
+- Optionally enrich nodes from a qualified `mystictools-nodes.json` sidecar
 - Discover listeners owned by MIS/Mystic and report health
-- Export structured JSON and Prometheus-friendly metrics
-- Inspect conservative FidoNet filesystem signals
-- Human-readable and JSON output
+- Inspect FidoNet paths, semaphores, queue candidates and MIS POLL state
+- Discover Mystic node temp directories and known door dropfiles without reading session contents
+- Export structured JSON and optional Prometheus exposition metrics
 - Architecture-neutral Linux implementation
 
 ## Commands
@@ -32,6 +32,7 @@ mystictools network
 mystictools health
 mystictools metrics
 mystictools fidonet
+mystictools doors
 ```
 
 Common options:
@@ -43,22 +44,43 @@ Common options:
 
 Root detection order: `--root`, `MYSTIC_ROOT`, `/mystic`, `/opt/mystic`, `/srv/mystic`.
 
+### Prometheus
+
+Prometheus support is optional. MysticTools remains fully usable with ordinary human-readable or JSON output.
+
+```sh
+mystictools metrics
+mystictools --json metrics
+mystictools metrics --prometheus
+```
+
+Public Prometheus metric names use the `mystictools_*` namespace. Current coverage includes runtime/procfs availability, MIS and node processes, network listeners, logs, disk space, health, native node-provider qualification, FidoNet signals and door/dropfile diagnostics. Source-dependent values are omitted when their source is unavailable instead of being reported as a false zero.
+
+`--json` and `metrics --prometheus` are mutually exclusive output modes.
+
 ### FidoNet diagnostics
 
-`fidonet` is read-only and currently uses documented Mystic default path conventions only. Mystic allows these paths to be configured, so the result is explicitly marked `qualified_config=false` until a qualified configuration provider is added.
+`fidonet` is read-only. MysticTools supports explicit FidoNet path configuration through `mystictools-fidonet.ini` or environment variables, with documented Mystic defaults retained as an explicitly unqualified fallback.
 
-It reports default EchoMail inbound/outbound/semaphore path presence, `echomail.in`, `echomail.out` and `netmail.out` semaphores, outbound busy/control files, and packet/TIC queue candidates. It never removes busy flags or modifies queue contents.
+Provider precedence is environment override, MysticTools INI, then documented Mystic default. The command reports path provenance/qualification, `echomail.in`, `echomail.out` and `netmail.out` semaphores, outbound busy/control files, packet/TIC queue candidates and detected `MIS POLL` processes. It never removes busy flags or modifies queue contents.
 
 ```sh
 mystictools fidonet
 mystictools --json fidonet
 ```
 
+### Doors/dropfiles
+
+`doors` discovers documented per-node `tempN` directories and known dropfiles such as `DOOR.SYS`, `CHAIN.TXT`, `DORINFO1.DEF` and `door32.sys`. It reports metadata only and does not expose caller/session contents.
+
+```sh
+mystictools doors
+mystictools --json doors
+```
+
 ### Logs
 
 `logs` only reads files already identified by MysticTools log discovery. It does not accept an arbitrary filesystem path.
-
-Examples:
 
 ```sh
 mystictools logs
@@ -69,9 +91,11 @@ mystictools --json logs mis --contains refused
 
 The default tail is 50 matching lines per selected file and the hard maximum is 5000.
 
-### Runtime discovery
+### Runtime and nodes
 
 `status`, `who`, `nodes`, `network` and `health` inspect Linux procfs directly and do not require systemd. Mystic can select node numbers internally, so if a running `mystic` process has no explicit `-N#` argument MysticTools reports the node as `?`/`null` instead of guessing.
+
+A qualified schema-v1 `mystictools-nodes.json` sidecar can optionally enrich explicit node IDs with Mystic-side fields. `MYSTICTOOLS_NODE_SNAPSHOT` can point to an alternate sidecar path. MysticTools does not reverse-engineer undocumented Mystic runtime record formats.
 
 ### Exit codes
 
