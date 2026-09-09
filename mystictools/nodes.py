@@ -2,16 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .node_provider import load_node_snapshot, merge_native_nodes
 from .runtime import runtime_snapshot
 
 
 def nodes_snapshot(root: Path) -> dict:
     runtime = runtime_snapshot(root)
     processes = runtime["processes"]
-    nodes = []
+    process_nodes = []
     for item in processes["nodes"]:
         argv = item.get("argv") or []
-        nodes.append(
+        process_nodes.append(
             {
                 "pid": item["pid"],
                 "node": item.get("node"),
@@ -22,9 +23,17 @@ def nodes_snapshot(root: Path) -> dict:
                 "arguments": argv[1:],
             }
         )
+
+    provider = load_node_snapshot(root)
+    nodes = merge_native_nodes(process_nodes, provider) if provider["qualified"] else [
+        {**item, "native": None, "native_qualified": False} for item in process_nodes
+    ]
+
     return {
         "ok": processes["available"],
+        "available": processes["available"],
         "source": processes["source"],
         "count": len(nodes),
         "nodes": nodes,
+        "native_provider": provider,
     }
