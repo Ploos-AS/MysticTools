@@ -12,7 +12,7 @@ license = {text = "MIT"}
 authors = [{name = "Ploos AS"}]
 
 [project.scripts]
-mystictools = "mystictools.cli:main"
+mystictools = "mystictools.app:main"
 mysticrollback = "mystictools.rollback_cli:main"
 
 [tool.setuptools]
