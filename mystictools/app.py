@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 from . import cli
 from .core import detect_root
+from .exporter_cli import main as exporter_main
 from .recovery_state import safe_record_event
 from .watch_cli import main as watch_main
 
@@ -21,13 +21,17 @@ def _explicit_root(argv: list[str]) -> str | None:
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
 
-    # `watch` has its own refresh-loop parser but is also exposed through the
-    # umbrella command. Preserve global --root/--json arguments by removing
-    # only the command token.
+    # Long-running service/display commands have dedicated parsers but are
+    # also exposed through the umbrella command. Preserve global arguments by
+    # removing only the command token.
     if "watch" in args:
         watch_args = list(args)
         watch_args.remove("watch")
         return watch_main(watch_args)
+    if "exporter" in args:
+        exporter_args = list(args)
+        exporter_args.remove("exporter")
+        return exporter_main(exporter_args)
 
     exit_code = cli.main(args)
 
