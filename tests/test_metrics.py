@@ -12,7 +12,11 @@ class MetricsTests(unittest.TestCase):
             root = Path(td)
             with patch("mystictools.metrics.runtime_snapshot") as runtime, patch(
                 "mystictools.metrics.network_snapshot"
-            ) as network, patch("mystictools.metrics.operational_checks") as operations:
+            ) as network, patch("mystictools.metrics.operational_checks") as operations, patch(
+                "mystictools.metrics.load_node_snapshot"
+            ) as provider, patch("mystictools.metrics.fidonet_snapshot") as fidonet, patch(
+                "mystictools.metrics.doors_snapshot"
+            ) as doors:
                 runtime.return_value = {
                     "processes": {"available": True, "mis": [], "nodes": []},
                     "mis_running": True,
@@ -24,32 +28,82 @@ class MetricsTests(unittest.TestCase):
                     "disk": {"available": True, "free_bytes": 1024, "free_percent": 50.0},
                     "warning_count": 1,
                 }
+                provider.return_value = {"available": True, "qualified": True}
+                fidonet.return_value = {
+                    "qualified_config": True,
+                    "signals": {
+                        "busy_count": 1,
+                        "queued_outbound_count": 4,
+                        "inbound_packet_count": 2,
+                    },
+                    "poll": {"active": True},
+                }
+                doors.return_value = {
+                    "node_temp_count": 5,
+                    "dropfile_count": 6,
+                    "unreadable_dropfile_count": 1,
+                }
                 snap = metrics_snapshot(root)
-                self.assertEqual(snap["schema_version"], 1)
-                self.assertEqual(snap["values"]["mystic_mis_running"], 1)
-                self.assertEqual(snap["values"]["mystic_node_processes"], 2)
-                self.assertEqual(snap["values"]["mystic_listeners"], 2)
-                self.assertEqual(snap["values"]["mystic_logs_discovered"], 3)
+                self.assertEqual(snap["schema_version"], 2)
+                self.assertEqual(snap["values"]["mystictools_mis_running"], 1)
+                self.assertEqual(snap["values"]["mystictools_node_processes"], 2)
+                self.assertEqual(snap["values"]["mystictools_listener_count"], 2)
+                self.assertEqual(snap["values"]["mystictools_logs_discovered"], 3)
+                self.assertEqual(snap["values"]["mystictools_fidonet_outbound_queue_candidates"], 4)
+                self.assertEqual(snap["values"]["mystictools_door_dropfiles"], 6)
 
-    def test_prometheus_renderer_omits_none_values(self):
+    def test_unavailable_runtime_does_not_invent_runtime_values(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with patch("mystictools.metrics.runtime_snapshot") as runtime, patch(
+                "mystictools.metrics.network_snapshot"
+            ) as network, patch("mystictools.metrics.operational_checks") as operations, patch(
+                "mystictools.metrics.load_node_snapshot"
+            ) as provider, patch("mystictools.metrics.fidonet_snapshot") as fidonet, patch(
+                "mystictools.metrics.doors_snapshot"
+            ) as doors:
+                runtime.return_value = {
+                    "processes": {"available": False, "mis": [], "nodes": []},
+                    "mis_running": False,
+                    "active_process_count": 0,
+                }
+                network.return_value = {"available": False, "listeners": []}
+                operations.return_value = {
+                    "logs": {"count": 0},
+                    "disk": {"available": False, "free_bytes": None, "free_percent": None},
+                    "warning_count": 0,
+                }
+                provider.return_value = {"available": False, "qualified": False}
+                fidonet.return_value = {
+                    "qualified_config": False,
+                    "signals": {"busy_count": 0, "queued_outbound_count": 0, "inbound_packet_count": 0},
+                    "poll": {"active": False},
+                }
+                doors.return_value = {"node_temp_count": 0, "dropfile_count": 0, "unreadable_dropfile_count": 0}
+                snap = metrics_snapshot(root)
+                self.assertEqual(snap["values"]["mystictools_runtime_available"], 0)
+                self.assertIsNone(snap["values"]["mystictools_mis_running"])
+                self.assertIsNone(snap["values"]["mystictools_node_processes"])
+                self.assertIsNone(snap["values"]["mystictools_listener_count"])
+                self.assertIsNone(snap["values"]["mystictools_fidonet_poll_active"])
+
+    def test_prometheus_renderer_uses_one_namespace_and_omits_none_values(self):
         text = render_prometheus(
             {
                 "values": {
-                    "mystictools_up": 1,
-                    "mystic_mis_running": 0,
-                    "mystic_node_processes": 0,
-                    "mystic_listeners": 0,
-                    "mystic_logs_discovered": 0,
-                    "mystic_disk_free_bytes": None,
-                    "mystic_disk_free_percent": None,
-                    "mystic_operational_warnings": 0,
-                    "mystic_health_status": 1,
+                    "mystictools_runtime_available": 1,
+                    "mystictools_mis_running": 0,
+                    "mystictools_listener_count": None,
+                    "mystictools_health_status": 1,
                 }
             }
         )
-        self.assertIn("mystictools_up 1", text)
-        self.assertIn("mystic_health_status 1", text)
-        self.assertNotIn("mystic_disk_free_bytes", text)
+        self.assertIn("mystictools_runtime_available 1", text)
+        self.assertIn("mystictools_health_status 1", text)
+        self.assertNotIn("mystictools_listener_count", text)
+        for line in text.splitlines():
+            if line.startswith(("# HELP ", "# TYPE ", "mystictools_")):
+                self.assertNotIn(" mystic_", line)
 
 
 if __name__ == "__main__":
