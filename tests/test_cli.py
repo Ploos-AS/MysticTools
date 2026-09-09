@@ -43,6 +43,39 @@ class CliRegressionTests(unittest.TestCase):
             self.assertIn("node=2 pid=123", output.getvalue())
             self.assertIn("args: -N2", output.getvalue())
 
+    def test_users_human_output_uses_privacy_safe_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            result = {
+                "available": True,
+                "qualified": True,
+                "source": "sidecar-default",
+                "path": str(root / "mystictools-users.json"),
+                "schema_version": 1,
+                "generated_at": 123,
+                "count": 1,
+                "users": [
+                    {
+                        "id": 1,
+                        "handle": "Sysop",
+                        "security_level": 255,
+                        "calls": 42,
+                        "uploads": None,
+                        "downloads": None,
+                        "posts": None,
+                        "last_on": 123,
+                    }
+                ],
+                "error": None,
+            }
+            output = io.StringIO()
+            with patch("mystictools.cli.detect_root", return_value=root), patch(
+                "mystictools.cli.users_snapshot", return_value=result
+            ), redirect_stdout(output):
+                code = main(["users"])
+            self.assertEqual(code, 0)
+            self.assertIn("id=1 handle=Sysop level=255 calls=42", output.getvalue())
+
     def test_metrics_prometheus_uses_runtime_available_contract(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
