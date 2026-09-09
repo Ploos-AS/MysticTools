@@ -286,9 +286,26 @@ M3.3 is intentionally explicit and conservative. Verification and stopped-runtim
 
 Rollback is deliberately not an automatic cleanup mechanism. It accepts only the naming/location contract created by guarded restore, requires Mystic/MIS to be verifiably stopped, and preserves the tree being replaced as separate failed-state evidence. Recovery trees remain until the sysop explicitly removes them after independent validation of the active installation; MysticTools performs no age-based or count-based deletion in M3.4.
 
+### M3.5 — Recovery state and Prometheus observability
+
+- [x] Add schema-v1 recovery state stored outside the replaceable Mystic root
+- [x] Record backup and executed restore outcomes through the main CLI wrapper
+- [x] Record executed rollback outcomes through `mysticrollback`
+- [x] Make state recording best-effort so observability cannot break recovery operations
+- [x] Allow `MYSTICTOOLS_RECOVERY_STATE` path override
+- [x] Expose state availability and qualification metrics
+- [x] Expose last backup/restore/rollback success and age metrics without labels
+- [x] Expose rollback, failed and total preserved recovery-tree counts
+- [x] Bump the pre-release metrics schema to version 3
+- [x] Add recovery-state and metrics regression tests
+
+### M3.5 qualification boundary
+
+Recovery state is operational metadata, not an authoritative transaction log. It records the exit result of recovery commands and may be absent if the process is terminated before the best-effort state write or if the state path is not writable. Prometheus reads this state and sibling recovery-tree counts only; metrics never trigger backup, restore, rollback or cleanup. Missing event history is represented as unavailable metrics rather than false success or failure values.
+
 ### Later M3 areas
 
-- backup/restore Prometheus status history or state-file design
+- optional explicit recovery-state/history retention beyond last-result-per-operation
 
 ### Later areas
 
