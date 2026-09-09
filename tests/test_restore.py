@@ -7,7 +7,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from mystictools.backup import MANIFEST_NAME
-from mystictools.restore import execute_restore, restore_preflight, verify_backup
+from mystictools.restore import (
+    discover_recovery_trees,
+    execute_restore,
+    execute_rollback,
+    restore_preflight,
+    rollback_preflight,
+    verify_backup,
+)
 
 
 class RestoreTests(unittest.TestCase):
@@ -152,6 +159,47 @@ class RestoreTests(unittest.TestCase):
             self.assertEqual((root / "data" / "test.txt").read_bytes(), b"hello")
             rollback = Path(result["rollback_path"])
             self.assertTrue((rollback / "old.txt").exists())
+
+    def test_rollback_preflight_rejects_unrelated_directory(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "mystic"
+            root.mkdir()
+            unrelated = base / "saved-copy"
+            unrelated.mkdir()
+            with patch("mystictools.restore.runtime_snapshot", return_value=self._stopped_runtime()):
+                result = rollback_preflight(root, unrelated)
+            self.assertFalse(result["ok"])
+            self.assertTrue(any("name must start" in item for item in result["errors"]))
+
+    def test_execute_rollback_preserves_current_tree_as_failed(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "mystic"
+            root.mkdir()
+            (root / "new.txt").write_text("new", encoding="utf-8")
+            rollback = base / ".mystic.rollback-123"
+            rollback.mkdir()
+            (rollback / "old.txt").write_text("old", encoding="utf-8")
+            with patch("mystictools.restore.runtime_snapshot", return_value=self._stopped_runtime()):
+                result = execute_rollback(root, rollback)
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["rolled_back"])
+            self.assertEqual((root / "old.txt").read_text(encoding="utf-8"), "old")
+            failed = Path(result["failed_tree_path"])
+            self.assertEqual((failed / "new.txt").read_text(encoding="utf-8"), "new")
+            self.assertFalse(rollback.exists())
+
+    def test_discover_recovery_trees_is_manual_cleanup_only(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "mystic"
+            (base / ".mystic.rollback-1").mkdir()
+            (base / ".mystic.failed-2").mkdir()
+            result = discover_recovery_trees(root)
+            self.assertEqual(len(result["rollback_trees"]), 1)
+            self.assertEqual(len(result["failed_trees"]), 1)
+            self.assertEqual(result["cleanup_policy"], "manual-only")
 
 
 if __name__ == "__main__":
