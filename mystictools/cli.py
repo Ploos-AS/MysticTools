@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from . import __version__
+from .backup import create_backup
 from .core import check_installation, detect_root, installation_snapshot
 from .diagnostics import EXIT_NOT_FOUND, EXIT_OK, EXIT_UNAVAILABLE, EXIT_WARNING, operational_checks
 from .doctor import doctor_snapshot
@@ -54,6 +56,19 @@ def emit(payload: dict, as_json: bool, prometheus: bool = False) -> None:
             print(f"{item['status'].upper():>11} {item['name']}: {item['detail']}")
         counts = result["counts"]
         print(f"Summary: ok={counts['ok']} warning={counts['warning']} critical={counts['critical']} unavailable={counts['unavailable']}")
+    elif command == "backup":
+        result = payload["result"]
+        print(f"Mystic root: {payload['root']}")
+        print(f"destination: {result['destination']}")
+        print(f"consistency: {result['consistency']}")
+        for warning in result.get("warnings", []):
+            print(f"WARNING: {warning}")
+        for error in result.get("errors", []):
+            print(f"ERROR: {error}")
+        if result.get("created"):
+            print(f"files: {result['manifest']['file_count']}")
+            print(f"archive size: {result['archive_size']} bytes")
+            print(f"sha256: {result['archive_sha256']}")
     elif command == "who":
         print(f"Mystic root: {payload['root']}")
         nodes = payload["nodes"]
@@ -110,10 +125,7 @@ def emit(payload: dict, as_json: bool, prometheus: bool = False) -> None:
     elif command == "stats":
         print(f"Mystic root: {payload['root']}")
         result = payload["result"]
-        for section, names in (
-            ("Users", ("users", "calls", "uploads", "downloads", "posts")),
-            ("Runtime", ("mis_running", "node_processes", "listeners")),
-        ):
+        for section, names in (("Users", ("users", "calls", "uploads", "downloads", "posts")), ("Runtime", ("mis_running", "node_processes", "listeners"))):
             print(f"{section}:")
             bucket = result[section.lower()]
             for name in names:
@@ -199,6 +211,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("status", help="show Mystic installation and runtime status")
     sub.add_parser("check", help="run read-only installation and operational checks")
     sub.add_parser("doctor", help="run cross-source consistency diagnostics")
+    backup = sub.add_parser("backup", help="create a checksummed Mystic backup archive")
+    backup.add_argument("destination", help="new .tar.gz archive path outside the Mystic root")
+    backup.add_argument("--allow-live", action="store_true", help="allow best-effort backup while Mystic/MIS is running")
+    backup.add_argument("--allow-unverified", action="store_true", help="allow backup when runtime state cannot be verified")
     sub.add_parser("who", help="show detected Mystic node processes")
     sub.add_parser("nodes", help="show detailed Mystic node/session process information")
     sub.add_parser("users", help="show qualified privacy-safe Mystic user snapshot")
@@ -248,12 +264,11 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "doctor":
         result = doctor_snapshot(root)
         payload = {"command": "doctor", "ok": result["status"] == "ok", "root": str(root), "result": result}
-        if result["status"] == "ok":
-            exit_code = EXIT_OK
-        elif result["status"] == "warning":
-            exit_code = EXIT_WARNING
-        else:
-            exit_code = EXIT_UNAVAILABLE
+        exit_code = EXIT_OK if result["status"] == "ok" else EXIT_WARNING if result["status"] == "warning" else EXIT_UNAVAILABLE
+    elif args.command == "backup":
+        result = create_backup(root, Path(args.destination), allow_live=args.allow_live, allow_unverified=args.allow_unverified)
+        payload = {"command": "backup", "ok": result["ok"] and result.get("created", False), "root": str(root), "result": result}
+        exit_code = EXIT_OK if payload["ok"] else EXIT_WARNING
     elif args.command == "who":
         runtime = runtime_snapshot(root)
         payload = {"command": "who", "ok": runtime["processes"]["available"], "root": str(root), "nodes": runtime["processes"]["nodes"], "source": runtime["processes"]["source"], "source_available": runtime["processes"]["available"]}
