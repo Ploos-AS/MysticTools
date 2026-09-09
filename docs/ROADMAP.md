@@ -213,9 +213,50 @@ Mystic documents `getuserid(ID)` for permanent user IDs but does not document a 
 
 `doctor` is a read-only correlation and diagnosis layer over already-qualified MysticTools probes and providers. It does not parse new Mystic formats, repair files, clear semaphores/busy state, delete stale fragments, or alter configuration. Findings are recommendations/status only; mutating repair operations remain outside this milestone.
 
-### Later M2 areas
+## M3 — Backup and recovery
+
+### M3.1 — Safe backup
+
+- [x] Add `backup` command with human and JSON output
+- [x] Default to offline-only consistency and refuse active MIS/Mystic processes
+- [x] Require explicit opt-in for best-effort live backup
+- [x] Refuse destinations inside the Mystic root or existing destinations
+- [x] Inventory files with SHA-256, size, mode and mtime
+- [x] Preserve symlink metadata without following it during inventory
+- [x] Embed schema-v1 `mystictools-backup-manifest.json`
+- [x] Atomically finalize the `.tar.gz` archive
+- [x] Report full-archive SHA-256
+- [x] Add backup engine tests and consistency documentation
+
+### M3.1 qualification boundary
+
+MysticTools backs up the installation tree as opaque files. It does not interpret or repair Mystic databases. Offline backup is the only consistency mode treated as application-consistent by default; `--allow-live` explicitly produces a best-effort snapshot that may contain cross-file races.
+
+### M3.2 — Restore verification and preflight
+
+- [x] Add non-destructive `restore` command
+- [x] Require and validate schema-v1 backup manifest
+- [x] Reject absolute paths and `..` traversal in archive members and manifest paths
+- [x] Reject unsafe symlink/hardlink targets
+- [x] Reject duplicate archive/member and manifest paths
+- [x] Verify regular-file sizes and SHA-256 checksums before any restore write
+- [x] Validate manifest file count
+- [x] Warn when backup consistency is not `offline`
+- [x] Require procfs runtime verification and stopped MIS/Mystic processes
+- [x] Keep M3.2 strictly verify/preflight-only with no extraction
+- [x] Add checksum, traversal and running-BBS tests
+
+### M3.2 qualification boundary
+
+`restore` in M3.2 performs no filesystem mutation. Passing preflight proves only that the archive structure, manifest, recorded regular-file payloads and current stopped-runtime requirement passed the implemented checks. Actual restoration remains a separate, explicit milestone and must reuse these checks before writing to the target root.
+
+### Later M3 areas
+
+- guarded restore execution with staging/rollback model
+- backup/restore Prometheus status history or state-file design
+
+### Later areas
 
 - optional explicit stale-fragment cleanup command/design
-- backup/restore design and consistency model
 - optional HTTP Prometheus exporter/service packaging
 - optional Mystic-side Python/menu integration
