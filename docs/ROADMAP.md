@@ -24,10 +24,18 @@ Mystic may select a node number internally when `-N#` is not present. MysticTool
 
 ## M0.2 — Operational checks
 
-- Permissions and ownership diagnostics
-- Disk-space checks
-- Log-directory discovery
-- Stable exit-code contract
+- [x] Permissions and ownership diagnostics
+- [x] Disk-space checks
+- [x] Log-directory and candidate-log discovery
+- [x] Stable exit-code contract
+- [x] Operational diagnostics tests
+
+### Exit-code contract
+
+- `0` — command completed successfully / healthy
+- `1` — diagnostic warnings were found
+- `2` — Mystic installation was not found
+- `3` — required runtime/probe source is unavailable
 
 ## M1 — Sysop observability
 
