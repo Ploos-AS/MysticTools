@@ -5,8 +5,9 @@ from pathlib import Path
 
 from .doors import doors_snapshot
 from .fidonet import fidonet_snapshot
-from .metrics import metrics_snapshot
-from .network import network_snapshot
+from .metrics import SCHEMA_VERSION as METRICS_SCHEMA_VERSION
+from .network import health_snapshot, network_snapshot
+from .node_provider import load_node_snapshot
 from .nodes import nodes_snapshot
 from .recovery_state import read_state, recovery_tree_counts
 from .runtime import runtime_snapshot
@@ -16,13 +17,14 @@ def watch_snapshot(root: Path) -> dict:
     root = root.resolve()
     runtime = runtime_snapshot(root)
     processes = runtime["processes"]
-    nodes = nodes_snapshot(root)
+    provider = load_node_snapshot(root)
+    nodes = nodes_snapshot(root, runtime=runtime, provider=provider)
     network = network_snapshot(processes)
+    health = health_snapshot(runtime, network)
     fidonet = fidonet_snapshot(root, processes=processes)
     doors = doors_snapshot(root)
     recovery = read_state(root)
     recovery_trees = recovery_tree_counts(root)
-    metrics = metrics_snapshot(root)
     return {
         "root": str(root),
         "timestamp": int(time.time()),
@@ -37,8 +39,8 @@ def watch_snapshot(root: Path) -> dict:
         "doors": doors,
         "recovery": recovery,
         "recovery_trees": recovery_trees,
-        "health": metrics["health"],
-        "metrics_schema": metrics["schema_version"],
+        "health": health["status"],
+        "metrics_schema": METRICS_SCHEMA_VERSION,
     }
 
 
