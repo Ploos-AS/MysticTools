@@ -127,13 +127,18 @@ def emit(payload: dict, as_json: bool, prometheus: bool = False) -> None:
         print(f"source: {result['source']} (qualified_config={result['qualified_config']})")
         for name, item in result["paths"].items():
             state = "present" if item["exists"] else "missing"
-            print(f"{name}: {state} ({item['path']})")
+            qualification = "qualified" if item.get("qualified") else item.get("source", "derived")
+            print(f"{name}: {state} [{qualification}] ({item['path']})")
         signals = result["signals"]
         print(f"busy files: {signals['busy_count']}")
         print(f"queued outbound: {signals['queued_outbound_count']}")
         print(f"inbound packets: {signals['inbound_packet_count']}")
         active = [name for name in ("echomail_in", "echomail_out", "netmail_out") if signals[name]]
         print(f"semaphores: {', '.join(active) if active else 'none'}")
+        poll = result["poll"]
+        print(f"MIS POLL: {'active' if poll['active'] else 'not detected'} ({poll['count']} process(es))")
+        for process in poll["processes"]:
+            print(f"  pid={process['pid']} argv={' '.join(process['argv'])}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -148,7 +153,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("nodes", help="show detailed Mystic node/session process information")
     sub.add_parser("network", help="show listeners owned by detected MIS/Mystic processes")
     sub.add_parser("health", help="show monitoring-friendly Mystic health summary")
-    sub.add_parser("fidonet", help="show conservative FidoNet filesystem diagnostics")
+    sub.add_parser("fidonet", help="show conservative FidoNet filesystem and poll diagnostics")
     metrics = sub.add_parser("metrics", help="show exporter-friendly Mystic metrics")
     metrics.add_argument("--prometheus", action="store_true", help="emit Prometheus exposition text")
     logs = sub.add_parser("logs", help="read discovered Mystic log files")
@@ -234,9 +239,10 @@ def main(argv: list[str] | None = None) -> int:
         prometheus = args.prometheus
         exit_code = EXIT_OK if payload["ok"] else EXIT_UNAVAILABLE
     elif args.command == "fidonet":
-        result = fidonet_snapshot(root)
+        runtime = runtime_snapshot(root)
+        result = fidonet_snapshot(root, processes=runtime["processes"])
         payload = {"command": "fidonet", "ok": True, "root": str(root), "result": result}
-        exit_code = EXIT_OK
+        exit_code = EXIT_OK if runtime["processes"]["available"] else EXIT_UNAVAILABLE
     else:
         try:
             result = log_snapshot(root, name=args.name, tail=args.tail, contains=args.contains)
