@@ -199,10 +199,23 @@ Mystic documents `getuserid(ID)` for permanent user IDs but does not document a 
 
 `stats` is an aggregation layer, not a new parser. User totals are emitted only from a qualified users provider; runtime and listener values retain their procfs availability semantics; FidoNet and door values come from their existing conservative providers. No user identity is used as a Prometheus label.
 
+### M2.10 — Doctor diagnostics
+
+- [x] Add `doctor` command with human and JSON output
+- [x] Correlate runtime/MIS, network, operational checks, node provider, users provider, FidoNet and doors
+- [x] Use explicit `ok`, `warning`, `critical` and `unavailable` finding states
+- [x] Preserve source uncertainty instead of converting missing providers into healthy values
+- [x] Warn on stale node fragments, unqualified providers/configuration, busy FidoNet state and unreadable dropfiles
+- [x] Add low-cardinality Prometheus doctor status/count metrics
+- [x] Add doctor model tests
+
+### M2.10 qualification boundary
+
+`doctor` is a read-only correlation and diagnosis layer over already-qualified MysticTools probes and providers. It does not parse new Mystic formats, repair files, clear semaphores/busy state, delete stale fragments, or alter configuration. Findings are recommendations/status only; mutating repair operations remain outside this milestone.
+
 ### Later M2 areas
 
 - optional explicit stale-fragment cleanup command/design
-- doctor/deeper consistency diagnostics
 - backup/restore design and consistency model
 - optional HTTP Prometheus exporter/service packaging
 - optional Mystic-side Python/menu integration
