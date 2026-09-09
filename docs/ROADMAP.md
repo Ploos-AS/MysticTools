@@ -52,8 +52,12 @@ Mystic may select a node number internally when `-N#` is not present. MysticTool
 
 ### M1.3 — Network/service status
 
-- listener/service discovery
-- monitoring-friendly health output
+- [x] Discover TCP/TCP6 listeners through procfs
+- [x] Map socket inodes to detected MIS/Mystic PIDs
+- [x] `network` command with human-readable and JSON output
+- [x] `health` command with monitoring-friendly status/checks
+- [x] Preserve stable exit-code contract
+- [x] Network fixture tests
 
 ### M1.4 — Metrics groundwork
 
