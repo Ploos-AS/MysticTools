@@ -63,6 +63,7 @@ class NodeProviderTests(unittest.TestCase):
             self.assertEqual([item["node"] for item in snap["nodes"]], [1, 2])
             self.assertEqual(snap["fresh_fragment_count"], 2)
             self.assertEqual(snap["stale_fragment_count"], 0)
+            self.assertEqual(snap["future_fragment_count"], 0)
 
     def test_stale_fragment_is_excluded(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -70,18 +71,38 @@ class NodeProviderTests(unittest.TestCase):
             fragment_dir = root / "mystictools-nodes.d"
             fragment_dir.mkdir()
             (fragment_dir / "node-1.json").write_text(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "generated_at": 100,
-                        "nodes": [{"node": 1}],
-                    }
-                )
+                json.dumps({"schema_version": 1, "generated_at": 100, "nodes": [{"node": 1}]})
             )
             snap = load_node_snapshot(root, now=1000)
             self.assertFalse(snap["qualified"])
             self.assertEqual(snap["nodes"], [])
             self.assertEqual(snap["stale_fragment_count"], 1)
+
+    def test_future_fragment_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fragment_dir = root / "mystictools-nodes.d"
+            fragment_dir.mkdir()
+            (fragment_dir / "node-1.json").write_text(
+                json.dumps({"schema_version": 1, "generated_at": 1200, "nodes": [{"node": 1}]})
+            )
+            snap = load_node_snapshot(root, now=1000)
+            self.assertFalse(snap["qualified"])
+            self.assertEqual(snap["future_fragment_count"], 1)
+            self.assertIn("future", snap["error"])
+
+    def test_duplicate_nodes_across_fragments_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fragment_dir = root / "mystictools-nodes.d"
+            fragment_dir.mkdir()
+            for name in ("node-1.json", "node-01.json"):
+                (fragment_dir / name).write_text(
+                    json.dumps({"schema_version": 1, "generated_at": 1000, "nodes": [{"node": 1}]})
+                )
+            snap = load_node_snapshot(root, now=1001)
+            self.assertFalse(snap["qualified"])
+            self.assertIn("duplicate node", snap["error"])
 
     def test_invalid_fragment_marks_provider_unqualified(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -101,22 +122,19 @@ class NodeProviderTests(unittest.TestCase):
             self.assertFalse(snap["qualified"])
             self.assertIn("schema", snap["error"])
 
+    def test_sidecar_invalid_field_type_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "mystictools-nodes.json").write_text(
+                json.dumps({"schema_version": 1, "nodes": [{"node": 1, "invisible": "false"}]})
+            )
+            snap = load_node_snapshot(root)
+            self.assertFalse(snap["qualified"])
+            self.assertIn("boolean", snap["error"])
+
     def test_merge_preserves_procfs_and_enriches_matching_node(self) -> None:
-        processes = [
-            {
-                "pid": 123,
-                "node": 2,
-                "node_source": "argv",
-                "started_at": 10.0,
-                "runtime_seconds": 20,
-                "exe": "/mystic/mystic",
-                "arguments": ["-N2"],
-            }
-        ]
-        provider = {
-            "qualified": True,
-            "nodes": [{"node": 2, "user": "Sysop", "action": "Main menu", "server": "Telnet", "invisible": False, "available_for_messages": True}],
-        }
+        processes = [{"pid": 123, "node": 2, "node_source": "argv", "started_at": 10.0, "runtime_seconds": 20, "exe": "/mystic/mystic", "arguments": ["-N2"]}]
+        provider = {"qualified": True, "nodes": [{"node": 2, "user": "Sysop", "action": "Main menu", "server": "Telnet", "invisible": False, "available_for_messages": True}]}
         merged = merge_native_nodes(processes, provider)
         self.assertEqual(merged[0]["pid"], 123)
         self.assertEqual(merged[0]["native"]["user"], "Sysop")
@@ -125,17 +143,7 @@ class NodeProviderTests(unittest.TestCase):
         self.assertEqual(merged[0]["native_correlation"], "explicit-node-match")
 
     def test_unmatched_native_node_is_inactive_when_all_process_nodes_are_explicit(self) -> None:
-        processes = [
-            {
-                "pid": 123,
-                "node": 1,
-                "node_source": "argv",
-                "started_at": None,
-                "runtime_seconds": None,
-                "exe": "/mystic/mystic",
-                "arguments": ["-N1"],
-            }
-        ]
+        processes = [{"pid": 123, "node": 1, "node_source": "argv", "started_at": None, "runtime_seconds": None, "exe": "/mystic/mystic", "arguments": ["-N1"]}]
         provider = {"qualified": True, "nodes": [{"node": 2, "user": "OldUser"}]}
         merged = merge_native_nodes(processes, provider)
         native_only = next(item for item in merged if item["node"] == 2)
@@ -143,17 +151,7 @@ class NodeProviderTests(unittest.TestCase):
         self.assertEqual(native_only["native_correlation"], "no-matching-process")
 
     def test_unmatched_native_node_is_unresolved_with_auto_selected_process(self) -> None:
-        processes = [
-            {
-                "pid": 123,
-                "node": None,
-                "node_source": None,
-                "started_at": None,
-                "runtime_seconds": None,
-                "exe": "/mystic/mystic",
-                "arguments": [],
-            }
-        ]
+        processes = [{"pid": 123, "node": None, "node_source": None, "started_at": None, "runtime_seconds": None, "exe": "/mystic/mystic", "arguments": []}]
         provider = {"qualified": True, "nodes": [{"node": 2, "user": "PossibleUser"}]}
         merged = merge_native_nodes(processes, provider)
         native_only = next(item for item in merged if item["node"] == 2)
