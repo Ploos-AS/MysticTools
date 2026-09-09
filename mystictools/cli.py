@@ -13,6 +13,7 @@ from .diagnostics import (
     EXIT_WARNING,
     operational_checks,
 )
+from .doors import doors_snapshot
 from .fidonet import fidonet_snapshot
 from .logs import DEFAULT_TAIL, MAX_TAIL, log_snapshot
 from .metrics import metrics_snapshot, render_prometheus
@@ -139,6 +140,16 @@ def emit(payload: dict, as_json: bool, prometheus: bool = False) -> None:
         print(f"MIS POLL: {'active' if poll['active'] else 'not detected'} ({poll['count']} process(es))")
         for process in poll["processes"]:
             print(f"  pid={process['pid']} argv={' '.join(process['argv'])}")
+    elif command == "doors":
+        print(f"Mystic root: {payload['root']}")
+        result = payload["result"]
+        print(f"node temp dirs: {result['node_temp_count']}")
+        print(f"dropfiles: {result['dropfile_count']}")
+        for node in result["nodes"]:
+            print(f"node={node['node']} path={node['path']} dropfiles={node['dropfile_count']}")
+            for item in node["dropfiles"]:
+                state = "readable" if item["readable"] else "unreadable"
+                print(f"  {item['name']} format={item['kind']} size={item['size']} {state}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -154,6 +165,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("network", help="show listeners owned by detected MIS/Mystic processes")
     sub.add_parser("health", help="show monitoring-friendly Mystic health summary")
     sub.add_parser("fidonet", help="show conservative FidoNet filesystem and poll diagnostics")
+    sub.add_parser("doors", help="show node temp directories and known door dropfiles")
     metrics = sub.add_parser("metrics", help="show exporter-friendly Mystic metrics")
     metrics.add_argument("--prometheus", action="store_true", help="emit Prometheus exposition text")
     logs = sub.add_parser("logs", help="read discovered Mystic log files")
@@ -243,6 +255,10 @@ def main(argv: list[str] | None = None) -> int:
         result = fidonet_snapshot(root, processes=runtime["processes"])
         payload = {"command": "fidonet", "ok": True, "root": str(root), "result": result}
         exit_code = EXIT_OK if runtime["processes"]["available"] else EXIT_UNAVAILABLE
+    elif args.command == "doors":
+        result = doors_snapshot(root)
+        payload = {"command": "doors", "ok": result["unreadable_dropfile_count"] == 0, "root": str(root), "result": result}
+        exit_code = EXIT_OK if payload["ok"] else EXIT_WARNING
     else:
         try:
             result = log_snapshot(root, name=args.name, tail=args.tail, contains=args.contains)
