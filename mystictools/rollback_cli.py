@@ -8,7 +8,7 @@ from pathlib import Path
 from .core import detect_root
 from .diagnostics import EXIT_NOT_FOUND, EXIT_OK, EXIT_WARNING
 from .recovery_state import safe_record_event
-from .restore import discover_recovery_trees, execute_rollback, rollback_preflight
+from .rollback import discover_recovery_trees, execute_rollback, rollback_preflight
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -34,6 +34,11 @@ def _emit(payload: dict, as_json: bool) -> None:
         print("failed trees:")
         for path in result["failed_trees"]:
             print(f"  {path}")
+        recovery = result.get("restore_transaction") or {}
+        if recovery.get("exists"):
+            print(f"restore transaction: {recovery.get('classification')}")
+            if recovery.get("recommended_action"):
+                print(f"recommended action: {recovery['recommended_action']}")
         print(f"cleanup policy: {result['cleanup_policy']}")
         return
 
@@ -48,6 +53,8 @@ def _emit(payload: dict, as_json: bool) -> None:
         print("rollback: COMPLETE")
         if result.get("failed_tree_path"):
             print(f"preserved replaced tree: {result['failed_tree_path']}")
+        if result.get("transaction_journal_cleared"):
+            print("restore transaction journal: CLEARED")
     else:
         print(f"preflight: {'PASS' if result['ok'] else 'FAIL'}")
 
