@@ -12,23 +12,33 @@ from .users import users_snapshot
 
 SCHEMA_VERSION = 1
 
-_SEVERITY = {"ok": 0, "warning": 1, "critical": 2, "unavailable": 3}
+_SEVERITY = {"ok": 0, "warning": 1, "unavailable": 2, "critical": 3}
 
 
 def _finding(name: str, status: str, detail: str) -> dict:
     return {"name": name, "status": status, "detail": detail}
 
 
-def doctor_snapshot(root: Path) -> dict:
-    runtime = runtime_snapshot(root)
+def doctor_snapshot(
+    root: Path,
+    *,
+    runtime: dict | None = None,
+    network: dict | None = None,
+    operations: dict | None = None,
+    node_provider: dict | None = None,
+    users: dict | None = None,
+    fidonet: dict | None = None,
+    doors: dict | None = None,
+) -> dict:
+    runtime = runtime_snapshot(root) if runtime is None else runtime
     processes = runtime["processes"]
     runtime_available = bool(processes["available"])
-    network = network_snapshot(processes)
-    operations = operational_checks(root)
-    node_provider = load_node_snapshot(root)
-    users = users_snapshot(root)
-    fidonet = fidonet_snapshot(root, processes=processes)
-    doors = doors_snapshot(root)
+    network = network_snapshot(processes) if network is None else network
+    operations = operational_checks(root) if operations is None else operations
+    node_provider = load_node_snapshot(root) if node_provider is None else node_provider
+    users = users_snapshot(root) if users is None else users
+    fidonet = fidonet_snapshot(root, processes=processes) if fidonet is None else fidonet
+    doors = doors_snapshot(root) if doors is None else doors
 
     findings: list[dict] = []
 
@@ -46,7 +56,11 @@ def doctor_snapshot(root: Path) -> dict:
     else:
         findings.append(_finding("network", "unavailable", "Network procfs discovery is unavailable."))
 
-    if operations["warning_count"]:
+    operational_items = operations.get("checks", [])
+    critical_operational = [item for item in operational_items if item.get("status") == "critical"]
+    if critical_operational:
+        findings.append(_finding("operations", "critical", f"{len(critical_operational)} critical operational finding(s) detected."))
+    elif operations.get("warning_count", 0):
         findings.append(_finding("operations", "warning", f"{operations['warning_count']} operational warning(s) detected."))
     else:
         findings.append(_finding("operations", "ok", "No operational warnings detected."))
