@@ -6,8 +6,8 @@ from .node_provider import load_node_snapshot, merge_native_nodes
 from .runtime import runtime_snapshot
 
 
-def nodes_snapshot(root: Path) -> dict:
-    runtime = runtime_snapshot(root)
+def nodes_snapshot(root: Path, *, runtime: dict | None = None, provider: dict | None = None) -> dict:
+    runtime = runtime_snapshot(root) if runtime is None else runtime
     processes = runtime["processes"]
     process_nodes = []
     for item in processes["nodes"]:
@@ -24,7 +24,7 @@ def nodes_snapshot(root: Path) -> dict:
             }
         )
 
-    provider = load_node_snapshot(root)
+    provider = load_node_snapshot(root) if provider is None else provider
     nodes = merge_native_nodes(process_nodes, provider) if provider["qualified"] else [
         {**item, "native": None, "native_qualified": False} for item in process_nodes
     ]
