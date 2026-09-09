@@ -6,13 +6,8 @@ import sys
 
 from . import __version__
 from .core import check_installation, detect_root, installation_snapshot
-from .diagnostics import (
-    EXIT_NOT_FOUND,
-    EXIT_OK,
-    EXIT_UNAVAILABLE,
-    EXIT_WARNING,
-    operational_checks,
-)
+from .diagnostics import EXIT_NOT_FOUND, EXIT_OK, EXIT_UNAVAILABLE, EXIT_WARNING, operational_checks
+from .doctor import doctor_snapshot
 from .doors import doors_snapshot
 from .fidonet import fidonet_snapshot
 from .logs import DEFAULT_TAIL, MAX_TAIL, log_snapshot
@@ -40,24 +35,25 @@ def emit(payload: dict, as_json: bool, prometheus: bool = False) -> None:
             print(f"{name:>5}: {state} ({info['path']})")
         runtime = payload["runtime"]
         version = runtime["version"]
-        if version["version"]:
-            print(f"version: {version['version']} {version['build'] or ''}".rstrip())
-        else:
-            print("version: unknown")
+        print(f"version: {version['version']} {version['build'] or ''}".rstrip() if version["version"] else "version: unknown")
         print(f"MIS: {'running' if runtime['mis_running'] else 'not detected'}")
         print(f"Mystic processes: {runtime['active_process_count']}")
-        ops = payload["operations"]
-        disk = ops["disk"]
-        if disk["available"]:
-            print(f"disk free: {disk['free_bytes']} bytes ({disk['free_percent']}%)")
-        else:
-            print("disk free: unavailable")
-        print(f"logs: {ops['logs']['count']} candidate file(s)")
+        disk = payload["operations"]["disk"]
+        print(f"disk free: {disk['free_bytes']} bytes ({disk['free_percent']}%)" if disk["available"] else "disk free: unavailable")
+        print(f"logs: {payload['operations']['logs']['count']} candidate file(s)")
     elif command == "check":
         print(f"Mystic root: {payload['root']}")
         for item in payload["result"]["checks"]:
             print(f"{item['status'].upper():>7} {item['name']}: {item['detail']}")
         print(f"Warnings: {payload['result']['warning_count']}")
+    elif command == "doctor":
+        print(f"Mystic root: {payload['root']}")
+        result = payload["result"]
+        print(f"status: {result['status'].upper()}")
+        for item in result["findings"]:
+            print(f"{item['status'].upper():>11} {item['name']}: {item['detail']}")
+        counts = result["counts"]
+        print(f"Summary: ok={counts['ok']} warning={counts['warning']} critical={counts['critical']} unavailable={counts['unavailable']}")
     elif command == "who":
         print(f"Mystic root: {payload['root']}")
         nodes = payload["nodes"]
@@ -67,8 +63,7 @@ def emit(payload: dict, as_json: bool, prometheus: bool = False) -> None:
         for item in nodes:
             node = item["node"] if item["node"] is not None else "?"
             args = " ".join(item["argv"][1:])
-            suffix = f" {args}" if args else ""
-            print(f"node={node} pid={item['pid']}{suffix}")
+            print(f"node={node} pid={item['pid']}{' ' + args if args else ''}")
         if any(item["node"] is None for item in nodes):
             print("Note: '?' means Mystic selected the node internally; MysticTools does not guess it.")
     elif command == "nodes":
@@ -115,29 +110,24 @@ def emit(payload: dict, as_json: bool, prometheus: bool = False) -> None:
     elif command == "stats":
         print(f"Mystic root: {payload['root']}")
         result = payload["result"]
-        print("Users:")
-        for name in ("users", "calls", "uploads", "downloads", "posts"):
-            value = result["users"][name]
-            print(f"  {name}: {value if value is not None else 'unavailable'}")
-        print("Runtime:")
-        for name in ("mis_running", "node_processes", "listeners"):
-            value = result["runtime"][name]
-            print(f"  {name}: {value if value is not None else 'unavailable'}")
-        print("FidoNet:")
-        for name, value in result["fidonet"].items():
-            print(f"  {name}: {value if value is not None else 'unavailable'}")
-        print("Doors:")
-        for name, value in result["doors"].items():
-            print(f"  {name}: {value if value is not None else 'unavailable'}")
+        for section, names in (
+            ("Users", ("users", "calls", "uploads", "downloads", "posts")),
+            ("Runtime", ("mis_running", "node_processes", "listeners")),
+        ):
+            print(f"{section}:")
+            bucket = result[section.lower()]
+            for name in names:
+                value = bucket[name]
+                print(f"  {name}: {value if value is not None else 'unavailable'}")
+        for section in ("fidonet", "doors"):
+            print(f"{section.title()}:")
+            for name, value in result[section].items():
+                print(f"  {name}: {value if value is not None else 'unavailable'}")
     elif command == "logs":
         print(f"Mystic root: {payload['root']}")
         result = payload["result"]
         if not result["files"]:
-            selector = result["selector"]
-            if selector:
-                print(f"No discovered log matched: {selector}")
-            else:
-                print("No candidate Mystic log files discovered.")
+            print(f"No discovered log matched: {result['selector']}" if result["selector"] else "No candidate Mystic log files discovered.")
             return
         for entry in result["files"]:
             print(f"==> {entry['path']} <==")
@@ -208,6 +198,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("status", help="show Mystic installation and runtime status")
     sub.add_parser("check", help="run read-only installation and operational checks")
+    sub.add_parser("doctor", help="run cross-source consistency diagnostics")
     sub.add_parser("who", help="show detected Mystic node processes")
     sub.add_parser("nodes", help="show detailed Mystic node/session process information")
     sub.add_parser("users", help="show qualified privacy-safe Mystic user snapshot")
@@ -244,40 +235,28 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "status":
         runtime = runtime_snapshot(root)
         operations = operational_checks(root)
-        payload = {
-            "command": "status",
-            "ok": True,
-            "root": str(root),
-            "installation": installation_snapshot(root),
-            "runtime": runtime,
-            "operations": operations,
-        }
+        payload = {"command": "status", "ok": True, "root": str(root), "installation": installation_snapshot(root), "runtime": runtime, "operations": operations}
         exit_code = EXIT_OK if runtime["processes"]["available"] else EXIT_UNAVAILABLE
     elif args.command == "check":
         install = check_installation(root)
         operations = operational_checks(root)
         checks = install["checks"] + operations["checks"]
         warning_count = sum(1 for item in checks if item["status"] != "ok")
-        result = {
-            "ok": warning_count == 0,
-            "root": str(root),
-            "checks": checks,
-            "warning_count": warning_count,
-            "installation": install,
-            "operations": operations,
-        }
+        result = {"ok": warning_count == 0, "root": str(root), "checks": checks, "warning_count": warning_count, "installation": install, "operations": operations}
         payload = {"command": "check", "ok": result["ok"], "root": str(root), "result": result}
         exit_code = EXIT_OK if result["ok"] else EXIT_WARNING
+    elif args.command == "doctor":
+        result = doctor_snapshot(root)
+        payload = {"command": "doctor", "ok": result["status"] == "ok", "root": str(root), "result": result}
+        if result["status"] == "ok":
+            exit_code = EXIT_OK
+        elif result["status"] == "warning":
+            exit_code = EXIT_WARNING
+        else:
+            exit_code = EXIT_UNAVAILABLE
     elif args.command == "who":
         runtime = runtime_snapshot(root)
-        payload = {
-            "command": "who",
-            "ok": runtime["processes"]["available"],
-            "root": str(root),
-            "nodes": runtime["processes"]["nodes"],
-            "source": runtime["processes"]["source"],
-            "source_available": runtime["processes"]["available"],
-        }
+        payload = {"command": "who", "ok": runtime["processes"]["available"], "root": str(root), "nodes": runtime["processes"]["nodes"], "source": runtime["processes"]["source"], "source_available": runtime["processes"]["available"]}
         exit_code = EXIT_OK if payload["ok"] else EXIT_UNAVAILABLE
     elif args.command == "nodes":
         result = nodes_snapshot(root)
@@ -289,13 +268,7 @@ def main(argv: list[str] | None = None) -> int:
         exit_code = EXIT_OK if result["qualified"] else EXIT_UNAVAILABLE
     elif args.command == "stats":
         result = stats_snapshot(root)
-        available = any(
-            (
-                result["sources"]["users_qualified"],
-                result["sources"]["runtime_available"],
-                result["sources"]["network_available"],
-            )
-        )
+        available = any((result["sources"]["users_qualified"], result["sources"]["runtime_available"], result["sources"]["network_available"]))
         payload = {"command": "stats", "ok": available, "root": str(root), "result": result}
         exit_code = EXIT_OK if available else EXIT_UNAVAILABLE
     elif args.command == "network":
@@ -308,20 +281,10 @@ def main(argv: list[str] | None = None) -> int:
         network = network_snapshot(runtime["processes"])
         result = health_snapshot(runtime, network)
         payload = {"command": "health", "ok": result["status"] == "ok", "root": str(root), "result": result}
-        if result["status"] == "ok":
-            exit_code = EXIT_OK
-        elif result["status"] == "warning":
-            exit_code = EXIT_WARNING
-        else:
-            exit_code = EXIT_UNAVAILABLE
+        exit_code = EXIT_OK if result["status"] == "ok" else EXIT_WARNING if result["status"] == "warning" else EXIT_UNAVAILABLE
     elif args.command == "metrics":
         result = metrics_snapshot(root)
-        payload = {
-            "command": "metrics",
-            "ok": result["values"]["mystictools_runtime_available"] == 1,
-            "root": str(root),
-            "result": result,
-        }
+        payload = {"command": "metrics", "ok": result["values"]["mystictools_runtime_available"] == 1, "root": str(root), "result": result}
         prometheus = args.prometheus
         exit_code = EXIT_OK if payload["ok"] else EXIT_UNAVAILABLE
     elif args.command == "fidonet":
