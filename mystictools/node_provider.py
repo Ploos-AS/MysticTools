@@ -9,6 +9,7 @@ SCHEMA_VERSION = 1
 DEFAULT_FILENAME = "mystictools-nodes.json"
 DEFAULT_FRAGMENT_DIR = "mystictools-nodes.d"
 DEFAULT_FRAGMENT_MAX_AGE_SECONDS = 300
+DEFAULT_FUTURE_SKEW_SECONDS = 5
 
 
 def provider_path(root: Path) -> tuple[Path, str]:
@@ -39,16 +40,41 @@ def fragment_max_age_seconds() -> int:
     return max(1, parsed)
 
 
-def _normalize_nodes(records: object) -> list[dict]:
+def _valid_bool_or_none(value: object) -> bool:
+    return value is None or isinstance(value, bool)
+
+
+def _valid_text_or_none(value: object) -> bool:
+    return value is None or isinstance(value, str)
+
+
+def _normalize_nodes(records: object) -> tuple[list[dict], list[str]]:
     if not isinstance(records, list):
-        return []
-    nodes = []
-    for record in records:
-        if not isinstance(record, dict) or not isinstance(record.get("node"), int) or record["node"] < 1:
+        return [], ["nodes field is not a list"]
+    nodes: list[dict] = []
+    errors: list[str] = []
+    seen: set[int] = set()
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
+            errors.append(f"record {index}: not an object")
+            continue
+        node = record.get("node")
+        if not isinstance(node, int) or isinstance(node, bool) or node < 1:
+            errors.append(f"record {index}: invalid node number")
+            continue
+        if node in seen:
+            errors.append(f"duplicate node record: {node}")
+            continue
+        seen.add(node)
+        if not all(_valid_text_or_none(record.get(field)) for field in ("user", "action", "server")):
+            errors.append(f"node {node}: invalid text field type")
+            continue
+        if not all(_valid_bool_or_none(record.get(field)) for field in ("invisible", "available_for_messages")):
+            errors.append(f"node {node}: invalid boolean field type")
             continue
         nodes.append(
             {
-                "node": record["node"],
+                "node": node,
                 "user": record.get("user"),
                 "action": record.get("action"),
                 "server": record.get("server"),
@@ -56,7 +82,7 @@ def _normalize_nodes(records: object) -> list[dict]:
                 "available_for_messages": record.get("available_for_messages"),
             }
         )
-    return nodes
+    return nodes, errors
 
 
 def _load_fragments(root: Path, now: float | None = None) -> dict:
@@ -75,6 +101,7 @@ def _load_fragments(root: Path, now: float | None = None) -> dict:
             "fragment_count": 0,
             "fresh_fragment_count": 0,
             "stale_fragment_count": 0,
+            "future_fragment_count": 0,
             "max_age_seconds": max_age,
         }
 
@@ -82,6 +109,7 @@ def _load_fragments(root: Path, now: float | None = None) -> dict:
     errors: list[str] = []
     stale_count = 0
     fresh_count = 0
+    future_count = 0
     try:
         entries = sorted(directory.glob("node-*.json"))
     except OSError as exc:
@@ -96,6 +124,7 @@ def _load_fragments(root: Path, now: float | None = None) -> dict:
             "fragment_count": 0,
             "fresh_fragment_count": 0,
             "stale_fragment_count": 0,
+            "future_fragment_count": 0,
             "max_age_seconds": max_age,
         }
 
@@ -105,22 +134,33 @@ def _load_fragments(root: Path, now: float | None = None) -> dict:
         except (OSError, json.JSONDecodeError) as exc:
             errors.append(f"{path.name}: {exc}")
             continue
-        if payload.get("schema_version") != SCHEMA_VERSION:
+        if not isinstance(payload, dict) or payload.get("schema_version") != SCHEMA_VERSION:
             errors.append(f"{path.name}: unsupported schema")
             continue
         generated_at = payload.get("generated_at")
-        if not isinstance(generated_at, (int, float)):
+        if not isinstance(generated_at, (int, float)) or isinstance(generated_at, bool):
             errors.append(f"{path.name}: missing generated_at")
             continue
-        age_seconds = max(0.0, current_time - float(generated_at))
+        delta = current_time - float(generated_at)
+        if delta < -DEFAULT_FUTURE_SKEW_SECONDS:
+            future_count += 1
+            errors.append(f"{path.name}: generated_at is in the future")
+            continue
+        age_seconds = max(0.0, delta)
         if age_seconds > max_age:
             stale_count += 1
             continue
-        normalized = _normalize_nodes(payload.get("nodes"))
+        normalized, normalize_errors = _normalize_nodes(payload.get("nodes"))
+        if normalize_errors:
+            errors.extend(f"{path.name}: {item}" for item in normalize_errors)
+            continue
         if len(normalized) != 1:
             errors.append(f"{path.name}: expected exactly one node record")
             continue
         record = normalized[0]
+        if record["node"] in nodes_by_number:
+            errors.append(f"{path.name}: duplicate node across fragments: {record['node']}")
+            continue
         record["generated_at"] = generated_at
         record["age_seconds"] = int(age_seconds)
         nodes_by_number[record["node"]] = record
@@ -138,6 +178,7 @@ def _load_fragments(root: Path, now: float | None = None) -> dict:
         "fragment_count": len(entries),
         "fresh_fragment_count": fresh_count,
         "stale_fragment_count": stale_count,
+        "future_fragment_count": future_count,
         "max_age_seconds": max_age,
     }
 
@@ -159,25 +200,26 @@ def load_node_snapshot(root: Path, now: float | None = None) -> dict:
             "error": str(exc),
         }
 
-    if payload.get("schema_version") != SCHEMA_VERSION or not isinstance(payload.get("nodes"), list):
+    if not isinstance(payload, dict) or payload.get("schema_version") != SCHEMA_VERSION or not isinstance(payload.get("nodes"), list):
         return {
             "available": True,
             "qualified": False,
             "source": source,
             "path": str(path),
-            "schema_version": payload.get("schema_version"),
+            "schema_version": payload.get("schema_version") if isinstance(payload, dict) else None,
             "nodes": [],
             "error": "unsupported or invalid node snapshot schema",
         }
 
+    nodes, errors = _normalize_nodes(payload["nodes"])
     return {
         "available": True,
-        "qualified": True,
+        "qualified": not errors,
         "source": source,
         "path": str(path),
         "schema_version": SCHEMA_VERSION,
-        "nodes": _normalize_nodes(payload["nodes"]),
-        "error": None,
+        "nodes": nodes,
+        "error": "; ".join(errors) if errors else None,
     }
 
 
