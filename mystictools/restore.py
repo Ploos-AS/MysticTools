@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import tarfile
 import tempfile
 import time
@@ -14,8 +15,30 @@ from .runtime import runtime_snapshot
 
 
 def _safe_member_name(name: str) -> bool:
+    if not name or "\x00" in name:
+        return False
     path = PurePosixPath(name)
-    return not path.is_absolute() and ".." not in path.parts
+    return path != PurePosixPath(".") and not path.is_absolute() and ".." not in path.parts
+
+
+def _safe_relative_symlink_target(relative: str, target: str) -> bool:
+    if not _safe_member_name(relative) or not target or "\x00" in target:
+        return False
+    target_path = PurePosixPath(target)
+    if target_path.is_absolute():
+        return False
+    combined = PurePosixPath(relative).parent / target_path
+    depth = 0
+    for part in combined.parts:
+        if part in ("", "."):
+            continue
+        if part == "..":
+            depth -= 1
+            if depth < 0:
+                return False
+        else:
+            depth += 1
+    return True
 
 
 def _sha256_stream(handle) -> str:
@@ -23,6 +46,11 @@ def _sha256_stream(handle) -> str:
     for chunk in iter(lambda: handle.read(1024 * 1024), b""):
         digest.update(chunk)
     return digest.hexdigest()
+
+
+def _sha256_path(path: Path) -> str:
+    with path.open("rb") as handle:
+        return _sha256_stream(handle)
 
 
 def _runtime_guard(root: Path, operation: str) -> tuple[bool, bool | None, list[str]]:
@@ -54,12 +82,14 @@ def verify_backup(archive_path: Path) -> dict:
             names = [member.name for member in members]
             if len(names) != len(set(names)):
                 errors.append("archive contains duplicate member names")
+
             for member in members:
                 if not _safe_member_name(member.name):
                     errors.append(f"unsafe archive path: {member.name}")
-                if member.issym() or member.islnk():
-                    if not _safe_member_name(member.linkname):
-                        errors.append(f"unsafe archive link target: {member.name} -> {member.linkname}")
+                if member.islnk():
+                    errors.append(f"hardlinks are not supported: {member.name}")
+                elif not (member.isfile() or member.isdir() or member.issym()):
+                    errors.append(f"unsupported archive member type: {member.name}")
 
             try:
                 manifest_member = archive.getmember(MANIFEST_NAME)
@@ -68,14 +98,17 @@ def verify_backup(archive_path: Path) -> dict:
                 manifest_member = None
 
             if manifest_member is not None:
-                handle = archive.extractfile(manifest_member)
-                if handle is None:
+                if not manifest_member.isfile():
                     errors.append("backup manifest is not a regular file")
                 else:
-                    try:
-                        manifest = json.loads(handle.read().decode("utf-8"))
-                    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                        errors.append(f"invalid backup manifest: {exc}")
+                    handle = archive.extractfile(manifest_member)
+                    if handle is None:
+                        errors.append("backup manifest is not readable")
+                    else:
+                        try:
+                            manifest = json.loads(handle.read().decode("utf-8"))
+                        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                            errors.append(f"invalid backup manifest: {exc}")
 
             if manifest is not None:
                 if manifest.get("schema_version") != SCHEMA_VERSION:
@@ -87,6 +120,9 @@ def verify_backup(archive_path: Path) -> dict:
 
                 member_map = {member.name: member for member in members}
                 seen_paths: set[str] = set()
+                expected_payload: set[str] = set()
+                symlink_paths: set[PurePosixPath] = set()
+
                 for record in records:
                     if not isinstance(record, dict):
                         errors.append("backup manifest contains invalid file record")
@@ -100,33 +136,80 @@ def verify_backup(archive_path: Path) -> dict:
                         errors.append(f"duplicate manifest path: {relative}")
                         continue
                     seen_paths.add(relative)
-                    member = member_map.get(f"mystic/{relative}")
+                    archive_name = f"mystic/{relative}"
+                    expected_payload.add(archive_name)
+                    member = member_map.get(archive_name)
                     if member is None:
                         errors.append(f"manifest member missing from archive: {relative}")
                         continue
+
+                    path_obj = PurePosixPath(relative)
+                    if any(parent in symlink_paths for parent in path_obj.parents):
+                        errors.append(f"manifest path is nested beneath a symlink: {relative}")
+
                     if kind == "file":
+                        size = record.get("size")
+                        digest = record.get("sha256")
+                        mode = record.get("mode")
+                        mtime = record.get("mtime")
+                        if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+                            errors.append(f"invalid file size in manifest: {relative}")
+                            continue
+                        if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdefABCDEF" for c in digest):
+                            errors.append(f"invalid sha256 in manifest: {relative}")
+                            continue
+                        if not isinstance(mode, int) or isinstance(mode, bool) or mode < 0:
+                            errors.append(f"invalid mode in manifest: {relative}")
+                            continue
+                        if not isinstance(mtime, int) or isinstance(mtime, bool):
+                            errors.append(f"invalid mtime in manifest: {relative}")
+                            continue
                         if not member.isfile():
                             errors.append(f"manifest expected file but archive member differs: {relative}")
                             continue
-                        if member.size != record.get("size"):
+                        if member.size != size:
                             errors.append(f"size mismatch: {relative}")
                             continue
                         handle = archive.extractfile(member)
                         if handle is None:
                             errors.append(f"unable to read archive member: {relative}")
                             continue
-                        if _sha256_stream(handle) != record.get("sha256"):
+                        if _sha256_stream(handle) != digest.lower():
                             errors.append(f"checksum mismatch: {relative}")
                             continue
                         verified_files += 1
                     elif kind == "symlink":
-                        if not member.issym() or member.linkname != record.get("target"):
+                        target = record.get("target")
+                        if not isinstance(target, str) or not _safe_relative_symlink_target(relative, target):
+                            errors.append(f"unsafe symlink target: {relative} -> {target!r}")
+                            continue
+                        symlink_paths.add(path_obj)
+                        if not member.issym() or member.linkname != target:
                             errors.append(f"symlink target mismatch: {relative}")
                     else:
                         errors.append(f"unsupported manifest record type for {relative}: {kind!r}")
 
+                for relative in seen_paths:
+                    path_obj = PurePosixPath(relative)
+                    if any(parent in symlink_paths for parent in path_obj.parents):
+                        errors.append(f"manifest path is nested beneath a symlink: {relative}")
+
+                actual_payload = {
+                    member.name
+                    for member in members
+                    if member.name.startswith("mystic/") and member.name != "mystic/" and not member.isdir()
+                }
+                extra_payload = sorted(actual_payload - expected_payload)
+                missing_payload = sorted(expected_payload - actual_payload)
+                for name in extra_payload:
+                    errors.append(f"archive payload not declared in manifest: {name}")
+                for name in missing_payload:
+                    errors.append(f"manifest payload missing from archive: {name}")
+
                 expected_count = manifest.get("file_count")
-                if isinstance(expected_count, int) and expected_count != verified_files:
+                if not isinstance(expected_count, int) or isinstance(expected_count, bool) or expected_count < 0:
+                    errors.append("manifest file_count is invalid")
+                elif expected_count != verified_files:
                     errors.append("manifest file_count does not match verified regular files")
                 if manifest.get("consistency") != "offline":
                     warnings.append(f"backup consistency is {manifest.get('consistency')!r}, not 'offline'")
@@ -183,55 +266,69 @@ def execute_restore(root: Path, archive_path: Path, *, replace_existing: bool = 
     stage = Path(tempfile.mkdtemp(prefix=f".{root.name}.restore-", dir=parent))
     rollback: Path | None = None
     archive_path = Path(preflight["archive"])
+    manifest = preflight.get("manifest") or {}
+    records = manifest.get("files", [])
+    record_map = {f"mystic/{record['path']}": record for record in records if isinstance(record, dict) and isinstance(record.get("path"), str)}
 
     try:
         with tarfile.open(archive_path, "r:gz") as archive:
             for member in archive.getmembers():
-                if member.name == MANIFEST_NAME:
+                if member.name == MANIFEST_NAME or member.isdir():
                     continue
-                if member.name == "mystic" or not member.name.startswith("mystic/"):
+                record = record_map.get(member.name)
+                if record is None:
+                    raise OSError(f"archive member is not declared in manifest: {member.name}")
+                if record.get("type") != "file":
                     continue
-                relative = PurePosixPath(member.name).relative_to("mystic")
+                relative = PurePosixPath(record["path"])
                 destination = stage.joinpath(*relative.parts)
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                if member.isdir():
-                    destination.mkdir(parents=True, exist_ok=True)
-                elif member.isfile():
-                    handle = archive.extractfile(member)
-                    if handle is None:
-                        raise OSError(f"unable to read archive member: {member.name}")
-                    with destination.open("wb") as out:
-                        shutil.copyfileobj(handle, out)
-                elif member.issym():
-                    os.symlink(member.linkname, destination)
-                else:
-                    raise OSError(f"unsupported archive member type: {member.name}")
+                handle = archive.extractfile(member)
+                if handle is None:
+                    raise OSError(f"unable to read archive member: {member.name}")
+                with destination.open("xb") as out:
+                    shutil.copyfileobj(handle, out)
 
-        manifest = preflight.get("manifest") or {}
-        for record in manifest.get("files", []):
+            for member in archive.getmembers():
+                record = record_map.get(member.name)
+                if record is None or record.get("type") != "symlink":
+                    continue
+                relative = PurePosixPath(record["path"])
+                destination = stage.joinpath(*relative.parts)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                os.symlink(record["target"], destination)
+
+        for record in records:
             relative = record.get("path")
             if not isinstance(relative, str):
                 continue
             path = stage / relative
             if record.get("type") == "file":
-                os.chmod(path, int(record.get("mode", 0o644)))
-                mtime = int(record.get("mtime", int(time.time())))
+                os.chmod(path, int(record["mode"]))
+                mtime = int(record["mtime"])
                 os.utime(path, (mtime, mtime), follow_symlinks=False)
 
-        for record in manifest.get("files", []):
+        for record in records:
             if record.get("type") != "file":
                 continue
             path = stage / record["path"]
-            if not path.is_file():
+            try:
+                st = path.lstat()
+            except OSError:
                 raise OSError(f"staged file missing: {record['path']}")
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
-            if digest != record.get("sha256"):
+            if not stat.S_ISREG(st.st_mode):
+                raise OSError(f"staged path is not a regular file: {record['path']}")
+            digest = _sha256_path(path)
+            if digest != record.get("sha256", "").lower():
                 raise OSError(f"staged checksum mismatch: {record['path']}")
 
+        runtime_available, bbs_running, runtime_errors = _runtime_guard(root, "restore commit")
+        if not runtime_available or bbs_running:
+            raise OSError("; ".join(runtime_errors) or "runtime state changed before restore commit")
+
         if root.exists():
-            rollback = parent / f".{root.name}.rollback-{int(time.time())}"
-            if rollback.exists():
-                raise OSError(f"rollback path already exists: {rollback}")
+            rollback = Path(tempfile.mkdtemp(prefix=f".{root.name}.rollback-", dir=parent))
+            rollback.rmdir()
             os.replace(root, rollback)
         try:
             os.replace(stage, root)
