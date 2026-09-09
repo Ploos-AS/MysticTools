@@ -1,0 +1,38 @@
+[Unit]
+Description=MysticTools Prometheus exporter
+Documentation=https://github.com/Ploos-AS/MysticTools
+After=network.target
+
+[Service]
+Type=simple
+User=mystic
+Group=mystic
+Environment=MYSTIC_ROOT=/opt/mystic
+ExecStart=/usr/local/bin/mysticexporter --root ${MYSTIC_ROOT} --bind 127.0.0.1 --port 9108
+Restart=on-failure
+RestartSec=5s
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+UMask=0077
+
+# Exporter is read-only. Add paths here only if your Mystic installation
+# lives outside standard readable locations and systemd sandboxing blocks it.
+ReadOnlyPaths=/opt/mystic
+
+[Install]
+WantedBy=multi-user.target
