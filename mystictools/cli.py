@@ -14,20 +14,9 @@ from .diagnostics import (
     operational_checks,
 )
 from .logs import DEFAULT_TAIL, MAX_TAIL, log_snapshot
+from .network import health_snapshot, network_snapshot
 from .nodes import nodes_snapshot
 from .runtime import runtime_snapshot
-
-
-def _format_runtime(seconds: int | None) -> str:
-    if seconds is None:
-        return "?"
-    hours, rem = divmod(seconds, 3600)
-    minutes, secs = divmod(rem, 60)
-    if hours:
-        return f"{hours}h{minutes:02d}m{secs:02d}s"
-    if minutes:
-        return f"{minutes}m{secs:02d}s"
-    return f"{secs}s"
 
 
 def emit(payload: dict, as_json: bool) -> None:
@@ -80,14 +69,12 @@ def emit(payload: dict, as_json: bool) -> None:
         if not result["nodes"]:
             print("No Mystic node processes detected.")
             return
-        print("NODE  PID      RUNTIME   ARGUMENTS")
         for item in result["nodes"]:
             node = item["node"] if item["node"] is not None else "?"
-            runtime = _format_runtime(item["runtime_seconds"])
-            args = " ".join(item["arguments"])
-            print(f"{str(node):>4}  {item['pid']:<7}  {runtime:<8}  {args}")
-        if any(item["node"] is None for item in result["nodes"]):
-            print("Note: '?' means the node number could not be proven from the process arguments.")
+            runtime = f"{item['runtime_seconds']}s" if item["runtime_seconds"] is not None else "?"
+            print(f"node={node} pid={item['pid']} runtime={runtime} exe={item['exe'] or '?'}")
+            if item["argv"]:
+                print(f"  argv: {' '.join(item['argv'])}")
     elif command == "logs":
         print(f"Mystic root: {payload['root']}")
         result = payload["result"]
@@ -105,6 +92,23 @@ def emit(payload: dict, as_json: bool) -> None:
                 continue
             for line in entry["lines"]:
                 print(line)
+    elif command == "network":
+        print(f"Mystic root: {payload['root']}")
+        result = payload["result"]
+        if not result["available"]:
+            print("Network procfs unavailable.")
+            return
+        if not result["listeners"]:
+            print("No listeners owned by detected MIS/Mystic processes.")
+            return
+        for item in result["listeners"]:
+            print(f"{item['kind']} pid={item['pid']} {item['family']} {item['address']}:{item['port']}")
+    elif command == "health":
+        print(f"Mystic root: {payload['root']}")
+        result = payload["result"]
+        print(f"status: {result['status'].upper()}")
+        for item in result["checks"]:
+            print(f"{item['status'].upper():>7} {item['name']}: {item['detail']}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -115,8 +119,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("status", help="show Mystic installation and runtime status")
     sub.add_parser("check", help="run read-only installation and operational checks")
-    sub.add_parser("who", help="show compact Mystic node process list")
+    sub.add_parser("who", help="show detected Mystic node processes")
     sub.add_parser("nodes", help="show detailed Mystic node/session process information")
+    sub.add_parser("network", help="show listeners owned by detected MIS/Mystic processes")
+    sub.add_parser("health", help="show monitoring-friendly Mystic health summary")
     logs = sub.add_parser("logs", help="read discovered Mystic log files")
     logs.add_argument("name", nargs="?", help="log filename or stem selector, for example mis")
     logs.add_argument("--tail", type=int, default=DEFAULT_TAIL, help=f"show last N matching lines (0-{MAX_TAIL})")
@@ -175,8 +181,24 @@ def main(argv: list[str] | None = None) -> int:
         exit_code = EXIT_OK if payload["ok"] else EXIT_UNAVAILABLE
     elif args.command == "nodes":
         result = nodes_snapshot(root)
-        payload = {"command": "nodes", "ok": result["ok"], "root": str(root), "result": result}
-        exit_code = EXIT_OK if result["ok"] else EXIT_UNAVAILABLE
+        payload = {"command": "nodes", "ok": result["available"], "root": str(root), "result": result}
+        exit_code = EXIT_OK if result["available"] else EXIT_UNAVAILABLE
+    elif args.command == "network":
+        runtime = runtime_snapshot(root)
+        result = network_snapshot(runtime["processes"])
+        payload = {"command": "network", "ok": result["available"], "root": str(root), "result": result}
+        exit_code = EXIT_OK if result["available"] else EXIT_UNAVAILABLE
+    elif args.command == "health":
+        runtime = runtime_snapshot(root)
+        network = network_snapshot(runtime["processes"])
+        result = health_snapshot(runtime, network)
+        payload = {"command": "health", "ok": result["status"] == "ok", "root": str(root), "result": result}
+        if result["status"] == "ok":
+            exit_code = EXIT_OK
+        elif result["status"] == "warning":
+            exit_code = EXIT_WARNING
+        else:
+            exit_code = EXIT_UNAVAILABLE
     else:
         try:
             result = log_snapshot(root, name=args.name, tail=args.tail, contains=args.contains)
